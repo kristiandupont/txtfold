@@ -6,6 +6,9 @@
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
+pub mod entry;
+pub mod tokenizer;
+
 /// Core library functionality
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
