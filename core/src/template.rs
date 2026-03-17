@@ -32,6 +32,10 @@ pub enum VariableType {
     Timestamp,
     /// An identifier (UUID, hash, etc.)
     Identifier,
+    /// A duration value (e.g., "42ms", "3.5s")
+    Duration,
+    /// An IP address
+    IpAddress,
     /// Any other variable content
     Any,
 }
@@ -45,6 +49,8 @@ impl Template {
                 Token::Number(_) => TemplateToken::Variable(VariableType::Number),
                 Token::Timestamp(_) => TemplateToken::Variable(VariableType::Timestamp),
                 Token::Identifier(_) => TemplateToken::Variable(VariableType::Identifier),
+                Token::Duration(_) => TemplateToken::Variable(VariableType::Duration),
+                Token::IpAddress(_) => TemplateToken::Variable(VariableType::IpAddress),
                 Token::Literal(s) => TemplateToken::Fixed(s.clone()),
                 Token::Whitespace => TemplateToken::Fixed(" ".to_string()),
                 Token::Punctuation(c) => TemplateToken::Fixed(c.to_string()),
@@ -69,6 +75,8 @@ impl Template {
                     VariableType::Number => "<NUM>".to_string(),
                     VariableType::Timestamp => "<TIME>".to_string(),
                     VariableType::Identifier => "<ID>".to_string(),
+                    VariableType::Duration => "<DURATION>".to_string(),
+                    VariableType::IpAddress => "<IP>".to_string(),
                     VariableType::Any => "<VAR>".to_string(),
                 },
             })
@@ -107,6 +115,8 @@ impl Template {
                         VariableType::Number => matches!(actual_token, Token::Number(_)),
                         VariableType::Timestamp => matches!(actual_token, Token::Timestamp(_)),
                         VariableType::Identifier => matches!(actual_token, Token::Identifier(_)),
+                        VariableType::Duration => matches!(actual_token, Token::Duration(_)),
+                        VariableType::IpAddress => matches!(actual_token, Token::IpAddress(_)),
                         VariableType::Any => actual_token.is_variable(),
                     };
                     if !matches {
@@ -153,6 +163,8 @@ impl TemplateGroup {
                     Token::Number(s)
                     | Token::Timestamp(s)
                     | Token::Identifier(s)
+                    | Token::Duration(s)
+                    | Token::IpAddress(s)
                     | Token::Literal(s) => s.clone(),
                     _ => continue,
                 };
@@ -170,6 +182,35 @@ impl TemplateGroup {
     /// Get the count of entries in this group
     pub fn count(&self) -> usize {
         self.entry_indices.len()
+    }
+
+    /// Derive a human-readable name from the pattern
+    /// Takes first few non-variable tokens, max 5 words
+    pub fn derive_name(&self) -> String {
+        let mut words = Vec::new();
+        let max_words = 5;
+
+        for token in &self.template.tokens {
+            if words.len() >= max_words {
+                break;
+            }
+
+            match token {
+                TemplateToken::Fixed(s) => {
+                    // Skip punctuation and whitespace
+                    if !s.trim().is_empty() && !matches!(s.as_str(), "[" | "]" | "(" | ")" | "{" | "}" | "," | ";" | ":") {
+                        words.push(s.clone());
+                    }
+                }
+                _ => {} // Skip variables
+            }
+        }
+
+        if words.is_empty() {
+            "Pattern".to_string()
+        } else {
+            words.join(" ")
+        }
     }
 }
 

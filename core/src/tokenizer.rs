@@ -1,5 +1,6 @@
 //! Tokenization for log lines and text entries
 
+use crate::patterns::{PatternMatcher, PatternType};
 use serde::{Deserialize, Serialize};
 
 /// A token extracted from text
@@ -13,6 +14,10 @@ pub enum Token {
     Timestamp(String),
     /// A detected identifier (UUID, hash, etc.)
     Identifier(String),
+    /// A detected duration (e.g., "42ms", "3.5s")
+    Duration(String),
+    /// A detected IP address
+    IpAddress(String),
     /// Whitespace
     Whitespace,
     /// Punctuation
@@ -23,7 +28,12 @@ impl Token {
     /// Get the string representation of the token
     pub fn as_str(&self) -> &str {
         match self {
-            Token::Literal(s) | Token::Number(s) | Token::Timestamp(s) | Token::Identifier(s) => s,
+            Token::Literal(s)
+            | Token::Number(s)
+            | Token::Timestamp(s)
+            | Token::Identifier(s)
+            | Token::Duration(s)
+            | Token::IpAddress(s) => s,
             Token::Whitespace => " ",
             Token::Punctuation(c) => {
                 // We need a static reference, so we'll handle common punctuation
@@ -48,7 +58,11 @@ impl Token {
     pub fn is_variable(&self) -> bool {
         matches!(
             self,
-            Token::Number(_) | Token::Timestamp(_) | Token::Identifier(_)
+            Token::Number(_)
+                | Token::Timestamp(_)
+                | Token::Identifier(_)
+                | Token::Duration(_)
+                | Token::IpAddress(_)
         )
     }
 }
@@ -58,14 +72,26 @@ pub struct Tokenizer;
 
 impl Tokenizer {
     /// Tokenize a single line into tokens
+    /// Uses a two-pass approach: first extract timestamps, then tokenize rest
     pub fn tokenize(line: &str) -> Vec<Token> {
+        // First pass: extract full timestamps and mark their positions
+        let preprocessed = Self::preprocess_timestamps(line);
+
+        // Second pass: normal tokenization on preprocessed string
         let mut tokens = Vec::new();
         let mut current_word = String::new();
 
-        for ch in line.chars() {
+        for ch in preprocessed.chars() {
             match ch {
+                // Special marker for timestamp boundaries
+                '\x00' => {
+                    if !current_word.is_empty() {
+                        tokens.push(Self::classify_word(&current_word));
+                        current_word.clear();
+                    }
+                }
                 // Punctuation gets its own token
-                '[' | ']' | '(' | ')' | '{' | '}' | ':' | ',' | '.' | ';' => {
+                '[' | ']' | '(' | ')' | '{' | '}' | ',' | ';' => {
                     if !current_word.is_empty() {
                         tokens.push(Self::classify_word(&current_word));
                         current_word.clear();
@@ -80,7 +106,7 @@ impl Tokenizer {
                     }
                     tokens.push(Token::Whitespace);
                 }
-                // Regular characters
+                // Regular characters (including : and . which are part of timestamps)
                 _ => {
                     current_word.push(ch);
                 }
@@ -95,37 +121,35 @@ impl Tokenizer {
         tokens
     }
 
-    /// Classify a word into the appropriate token type
+    /// Preprocess line to protect timestamps from being split
+    /// Replaces timestamp patterns with marked versions
+    fn preprocess_timestamps(line: &str) -> String {
+        use regex::Regex;
+        use once_cell::sync::Lazy;
+
+        // Match common timestamp patterns
+        static TIMESTAMP_PATTERN: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}(\.\d+)?").unwrap()
+        });
+
+        // Add boundary markers around timestamps
+        let result = TIMESTAMP_PATTERN.replace_all(line, |caps: &regex::Captures| {
+            format!("\x00{}\x00", &caps[0])
+        });
+
+        result.to_string()
+    }
+
+    /// Classify a word into the appropriate token type using pattern matching
     fn classify_word(word: &str) -> Token {
-        // Check if it looks like a timestamp first (contains digits and dashes/colons)
-        // This must come before number check since timestamps like "2024-01-15" contain digits and dashes
-        if word.contains('-') || word.contains(':') {
-            let has_digit = word.chars().any(|c| c.is_ascii_digit());
-            let has_separator = word.contains('-') || word.contains(':');
-            if has_digit && has_separator {
-                return Token::Timestamp(word.to_string());
-            }
+        match PatternMatcher::classify(word) {
+            PatternType::Timestamp => Token::Timestamp(word.to_string()),
+            PatternType::Number => Token::Number(word.to_string()),
+            PatternType::Identifier => Token::Identifier(word.to_string()),
+            PatternType::Duration => Token::Duration(word.to_string()),
+            PatternType::IpAddress => Token::IpAddress(word.to_string()),
+            PatternType::None => Token::Literal(word.to_string()),
         }
-
-        // Check if it's a pure number
-        if word.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') {
-            // But make sure it's not just dashes or dots
-            if word.chars().any(|c| c.is_ascii_digit()) {
-                return Token::Number(word.to_string());
-            }
-        }
-
-        // Check if it looks like a UUID or hash (hexadecimal, certain length patterns)
-        if word.len() >= 8 {
-            let hex_count = word.chars().filter(|c| c.is_ascii_hexdigit()).count();
-            let total_count = word.chars().count();
-            if hex_count == total_count || (word.contains('-') && hex_count > total_count / 2) {
-                return Token::Identifier(word.to_string());
-            }
-        }
-
-        // Default: literal
-        Token::Literal(word.to_string())
     }
 }
 
@@ -179,10 +203,12 @@ mod tests {
 
     #[test]
     fn test_tokenize_punctuation() {
-        let line = "Error: {code: 500, msg: timeout}";
+        let line = "Error; {code, msg}";
         let tokens = Tokenizer::tokenize(line);
 
-        assert!(tokens.contains(&Token::Punctuation(':')));
+        // Note: ':' is no longer split as punctuation (kept with timestamps)
+        // '.' is also kept with words (for floats/durations)
+        assert!(tokens.contains(&Token::Punctuation(';')));
         assert!(tokens.contains(&Token::Punctuation('{')));
         assert!(tokens.contains(&Token::Punctuation('}')));
         assert!(tokens.contains(&Token::Punctuation(',')));

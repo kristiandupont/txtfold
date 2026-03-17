@@ -47,6 +47,8 @@ pub struct AnalysisSummary {
 pub struct GroupOutput {
     /// Group identifier
     pub id: String,
+    /// Derived human-readable name from pattern
+    pub name: String,
     /// Human-readable pattern
     pub pattern: String,
     /// Number of entries matching this pattern
@@ -133,6 +135,7 @@ impl OutputBuilder {
 
             group_outputs.push(GroupOutput {
                 id: format!("group_{}", idx),
+                name: group.derive_name(),
                 pattern: group.template.pattern.clone(),
                 count,
                 percentage,

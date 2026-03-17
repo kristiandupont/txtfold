@@ -50,15 +50,20 @@ impl MarkdownFormatter {
         // Pattern groups section
         md.push_str("## Pattern Groups\n\n");
         for group in &output.groups {
-            md.push_str(&format!("### {} - {}\n\n", group.id, group.pattern));
+            // Header with derived name, count and percentage
             md.push_str(&format!(
-                "- **Count**: {} ({:.1}% of total)\n",
-                group.count, group.percentage
+                "### {} ({} entries, {:.1}%)\n\n",
+                group.name, group.count, group.percentage
             ));
+
+            // Pattern in code block
+            md.push_str("**Pattern**:\n```\n");
+            md.push_str(&group.pattern);
+            md.push_str("\n```\n\n");
 
             // Line ranges
             if !group.line_ranges.is_empty() {
-                md.push_str("- **Line ranges**: ");
+                md.push_str("**Line ranges**: ");
                 let ranges: Vec<String> = group
                     .line_ranges
                     .iter()
@@ -71,12 +76,12 @@ impl MarkdownFormatter {
                     })
                     .collect();
                 md.push_str(&ranges.join(", "));
-                md.push_str("\n");
+                md.push_str("\n\n");
             }
 
             // Sample entries
             if !group.samples.is_empty() {
-                md.push_str("\n**Sample entry**:\n```\n");
+                md.push_str("**Sample entry**:\n```\n");
                 md.push_str(&group.samples[0].content);
                 md.push_str("\n```\n");
 
@@ -174,11 +179,12 @@ mod tests {
         let output = OutputBuilder::new(entries).build(&extractor);
         let markdown = MarkdownFormatter::format(&output);
 
-        // Should show the pattern
+        // Should show the pattern in code block
+        assert!(markdown.contains("**Pattern**:"));
         assert!(markdown.contains("Request took <NUM> ms"));
 
-        // Should show count and percentage
-        assert!(markdown.contains("Count**: 3"));
+        // Should show count and percentage in header
+        assert!(markdown.contains("3 entries"));
         assert!(markdown.contains("100.0%"));
 
         // Should show sample entry
