@@ -1,0 +1,32 @@
+[package]
+name = "txtfold"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Deterministic text compression tool for analyzing large log files and text data"
+keywords = ["compression", "logs", "analysis", "patterns", "text"]
+categories = ["text-processing", "command-line-utilities", "data-structures"]
+readme = "../README.md"
+
+[lib]
+# Support both WASM (cdylib) and native Rust usage (rlib)
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# WASM support
+wasm-bindgen = { version = "0.2", optional = true }
+
+[dev-dependencies]
+# For testing
+
+[features]
+default = []
+wasm = ["wasm-bindgen"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4"]
