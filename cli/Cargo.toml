@@ -1,0 +1,18 @@
+[package]
+name = "txtfold-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "CLI tool for txtfold text compression and log analysis"
+
+[[bin]]
+name = "txtfold"
+path = "src/main.rs"
+
+[dependencies]
+txtfold = { path = "../core" }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+serde_json = "1.0"
