@@ -60,6 +60,7 @@ static NUMBER: Lazy<Regex> = Lazy::new(|| {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternType {
     Timestamp,
+    Date,
     Number,
     Identifier,
     Duration,
@@ -78,13 +79,13 @@ impl PatternMatcher {
             return PatternType::Timestamp;
         }
 
-        // Time-only timestamps
-        if TIMESTAMP_TIME.is_match(word) {
-            return PatternType::Timestamp;
+        // Date-only (check before time-only to distinguish)
+        if TIMESTAMP_DATE.is_match(word) {
+            return PatternType::Date;
         }
 
-        // Date-only timestamps
-        if TIMESTAMP_DATE.is_match(word) {
+        // Time-only timestamps
+        if TIMESTAMP_TIME.is_match(word) {
             return PatternType::Timestamp;
         }
 
@@ -162,7 +163,7 @@ mod tests {
     fn test_timestamp_date() {
         assert_eq!(
             PatternMatcher::classify("2024-01-15"),
-            PatternType::Timestamp
+            PatternType::Date
         );
     }
 
@@ -239,10 +240,10 @@ mod tests {
         // "42ms" should be Duration, not Number
         assert_eq!(PatternMatcher::classify("42ms"), PatternType::Duration);
 
-        // "2024-01-15" should be Timestamp, not Number sequence
+        // "2024-01-15" should be Date, not Number sequence
         assert_eq!(
             PatternMatcher::classify("2024-01-15"),
-            PatternType::Timestamp
+            PatternType::Date
         );
     }
 }

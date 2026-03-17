@@ -30,6 +30,8 @@ pub enum VariableType {
     Number,
     /// A timestamp or date
     Timestamp,
+    /// A date (YYYY-MM-DD)
+    Date,
     /// An identifier (UUID, hash, etc.)
     Identifier,
     /// A duration value (e.g., "42ms", "3.5s")
@@ -48,6 +50,7 @@ impl Template {
             .map(|token| match token {
                 Token::Number(_) => TemplateToken::Variable(VariableType::Number),
                 Token::Timestamp(_) => TemplateToken::Variable(VariableType::Timestamp),
+                Token::Date(_) => TemplateToken::Variable(VariableType::Date),
                 Token::Identifier(_) => TemplateToken::Variable(VariableType::Identifier),
                 Token::Duration(_) => TemplateToken::Variable(VariableType::Duration),
                 Token::IpAddress(_) => TemplateToken::Variable(VariableType::IpAddress),
@@ -74,6 +77,7 @@ impl Template {
                 TemplateToken::Variable(var_type) => match var_type {
                     VariableType::Number => "<NUM>".to_string(),
                     VariableType::Timestamp => "<TIME>".to_string(),
+                    VariableType::Date => "<DATE>".to_string(),
                     VariableType::Identifier => "<ID>".to_string(),
                     VariableType::Duration => "<DURATION>".to_string(),
                     VariableType::IpAddress => "<IP>".to_string(),
@@ -114,6 +118,7 @@ impl Template {
                     let matches = match var_type {
                         VariableType::Number => matches!(actual_token, Token::Number(_)),
                         VariableType::Timestamp => matches!(actual_token, Token::Timestamp(_)),
+                        VariableType::Date => matches!(actual_token, Token::Date(_)),
                         VariableType::Identifier => matches!(actual_token, Token::Identifier(_)),
                         VariableType::Duration => matches!(actual_token, Token::Duration(_)),
                         VariableType::IpAddress => matches!(actual_token, Token::IpAddress(_)),
@@ -162,6 +167,7 @@ impl TemplateGroup {
                 let value = match actual_token {
                     Token::Number(s)
                     | Token::Timestamp(s)
+                    | Token::Date(s)
                     | Token::Identifier(s)
                     | Token::Duration(s)
                     | Token::IpAddress(s)
@@ -363,7 +369,7 @@ mod tests {
 
         // First group should have 2 entries (INFO login messages)
         assert_eq!(groups[0].count(), 2);
-        assert_eq!(groups[0].template.pattern, "[<TIME>] INFO User login");
+        assert_eq!(groups[0].template.pattern, "[<DATE>] INFO User login");
 
         // Check the other groups exist
         assert_eq!(groups[1].count(), 1);

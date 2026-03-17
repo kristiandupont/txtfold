@@ -12,6 +12,8 @@ pub enum Token {
     Number(String),
     /// A detected timestamp/date
     Timestamp(String),
+    /// A detected date (YYYY-MM-DD)
+    Date(String),
     /// A detected identifier (UUID, hash, etc.)
     Identifier(String),
     /// A detected duration (e.g., "42ms", "3.5s")
@@ -31,6 +33,7 @@ impl Token {
             Token::Literal(s)
             | Token::Number(s)
             | Token::Timestamp(s)
+            | Token::Date(s)
             | Token::Identifier(s)
             | Token::Duration(s)
             | Token::IpAddress(s) => s,
@@ -60,6 +63,7 @@ impl Token {
             self,
             Token::Number(_)
                 | Token::Timestamp(_)
+                | Token::Date(_)
                 | Token::Identifier(_)
                 | Token::Duration(_)
                 | Token::IpAddress(_)
@@ -144,6 +148,7 @@ impl Tokenizer {
     fn classify_word(word: &str) -> Token {
         match PatternMatcher::classify(word) {
             PatternType::Timestamp => Token::Timestamp(word.to_string()),
+            PatternType::Date => Token::Date(word.to_string()),
             PatternType::Number => Token::Number(word.to_string()),
             PatternType::Identifier => Token::Identifier(word.to_string()),
             PatternType::Duration => Token::Duration(word.to_string()),
@@ -163,7 +168,7 @@ mod tests {
         let tokens = Tokenizer::tokenize(line);
 
         assert_eq!(tokens[0], Token::Punctuation('['));
-        assert_eq!(tokens[1], Token::Timestamp("2024-01-15".to_string()));
+        assert_eq!(tokens[1], Token::Date("2024-01-15".to_string()));
         assert_eq!(tokens[2], Token::Punctuation(']'));
         assert_eq!(tokens[3], Token::Whitespace);
         assert_eq!(tokens[4], Token::Literal("INFO".to_string()));
