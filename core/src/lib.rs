@@ -7,6 +7,7 @@
 use wasm_bindgen::prelude::*;
 
 pub mod entry;
+pub mod template;
 pub mod tokenizer;
 
 /// Core library functionality
