@@ -56,10 +56,13 @@ impl MarkdownFormatter {
                 group.name, group.count, group.percentage
             ));
 
-            // Pattern in code block
-            md.push_str("**Pattern**:\n```\n");
-            md.push_str(&group.pattern);
-            md.push_str("\n```\n\n");
+            // Pattern (only show for template extraction, skip for clustering since samples show it)
+            let is_clustering = output.metadata.algorithm == "edit_distance_clustering";
+            if !is_clustering {
+                md.push_str("**Pattern**:\n```\n");
+                md.push_str(&group.pattern);
+                md.push_str("\n```\n\n");
+            }
 
             // Line ranges
             if !group.line_ranges.is_empty() {
@@ -81,19 +84,30 @@ impl MarkdownFormatter {
 
             // Sample entries
             if !group.samples.is_empty() {
-                md.push_str("**Sample entry**:\n```\n");
-                md.push_str(&group.samples[0].content);
-                md.push_str("\n```\n");
+                if group.samples.len() == 1 {
+                    // Single sample: use "Sample entry" (singular)
+                    md.push_str("**Sample entry**:\n```\n");
+                    md.push_str(&group.samples[0].content);
+                    md.push_str("\n```\n");
 
-                // Variable values
-                if !group.samples[0].variable_values.is_empty() {
-                    md.push_str("\n**Variable values**:\n");
-                    for (var_name, values) in &group.samples[0].variable_values {
-                        md.push_str(&format!("- `{}`: ", var_name));
-                        let value_str: Vec<String> =
-                            values.iter().map(|v| format!("`{}`", v)).collect();
-                        md.push_str(&value_str.join(", "));
-                        md.push_str("\n");
+                    // Variable values
+                    if !group.samples[0].variable_values.is_empty() {
+                        md.push_str("\n**Variable values**:\n");
+                        for (var_name, values) in &group.samples[0].variable_values {
+                            md.push_str(&format!("- `{}`: ", var_name));
+                            let value_str: Vec<String> =
+                                values.iter().map(|v| format!("`{}`", v)).collect();
+                            md.push_str(&value_str.join(", "));
+                            md.push_str("\n");
+                        }
+                    }
+                } else {
+                    // Multiple samples: show each one
+                    md.push_str("**Sample entries**:\n\n");
+                    for (idx, sample) in group.samples.iter().enumerate() {
+                        md.push_str(&format!("*Sample {}*:\n```\n", idx + 1));
+                        md.push_str(&sample.content);
+                        md.push_str("\n```\n\n");
                     }
                 }
             }

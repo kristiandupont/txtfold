@@ -30,6 +30,7 @@ enum Preset {
     Web,
     App,
     Noisy,
+    Multiline,
 }
 
 impl std::str::FromStr for Preset {
@@ -40,8 +41,9 @@ impl std::str::FromStr for Preset {
             "web" => Ok(Preset::Web),
             "app" => Ok(Preset::App),
             "noisy" => Ok(Preset::Noisy),
+            "multiline" => Ok(Preset::Multiline),
             _ => Err(format!(
-                "Invalid preset: {}. Use 'web', 'app', or 'noisy'",
+                "Invalid preset: {}. Use 'web', 'app', 'noisy', or 'multiline'",
                 s
             )),
         }
@@ -283,6 +285,118 @@ impl LogGenerator {
 
         logs
     }
+
+    fn generate_multiline(&mut self, count: usize) -> Vec<String> {
+        let mut logs = Vec::new();
+        let java_exceptions = [
+            "NullPointerException",
+            "IllegalArgumentException",
+            "SQLException",
+            "IOException",
+            "TimeoutException",
+        ];
+        let python_exceptions = [
+            "ValueError",
+            "KeyError",
+            "AttributeError",
+            "TypeError",
+            "ConnectionError",
+        ];
+        let services = ["auth-service", "payment-service", "user-service", "api-gateway"];
+        let methods = [
+            "processRequest",
+            "handleTransaction",
+            "validateUser",
+            "fetchData",
+            "updateRecord",
+        ];
+
+        for _ in 0..count {
+            let roll = self.rng.gen_range(0..100);
+
+            if roll < 40 {
+                // 40% - Java-style stack trace (4-8 lines)
+                let exception = java_exceptions[self.rng.gen_range(0..java_exceptions.len())];
+                let service = services[self.rng.gen_range(0..services.len())];
+                let method = methods[self.rng.gen_range(0..methods.len())];
+                let line_num = self.rng.gen_range(100..500);
+                let stack_depth = self.rng.gen_range(4..9);
+
+                logs.push(format!(
+                    "[{}] ERROR Exception in thread \"http-nio-8080-exec-{}\"",
+                    self.timestamp(),
+                    self.rng.gen_range(1..20)
+                ));
+                logs.push(format!(
+                    "java.lang.{}: Request processing failed",
+                    exception
+                ));
+                logs.push(format!(
+                    "\tat com.example.{}.{}({}Service.java:{})",
+                    service, method, service, line_num
+                ));
+
+                for i in 1..stack_depth {
+                    let caller_method = methods[self.rng.gen_range(0..methods.len())];
+                    let caller_line = self.rng.gen_range(50..300);
+                    logs.push(format!(
+                        "\tat com.example.api.controller.{}(Controller.java:{})",
+                        caller_method, caller_line
+                    ));
+                }
+            } else if roll < 70 {
+                // 30% - Python-style traceback (3-6 lines)
+                let exception = python_exceptions[self.rng.gen_range(0..python_exceptions.len())];
+                let service = services[self.rng.gen_range(0..services.len())];
+                let stack_depth = self.rng.gen_range(2..5);
+
+                logs.push(format!("[{}] ERROR Traceback (most recent call last):", self.timestamp()));
+
+                for i in 0..stack_depth {
+                    let file = format!("{}/handler.py", service);
+                    let line_num = self.rng.gen_range(20..200);
+                    let method = methods[self.rng.gen_range(0..methods.len())];
+                    logs.push(format!("  File \"{}\", line {}, in {}", file, line_num, method));
+                    logs.push(format!("    result = process_data(payload)"));
+                }
+                logs.push(format!("{}: Invalid data format", exception));
+            } else if roll < 85 {
+                // 15% - Multi-line request/response logs (2-4 lines)
+                let service = services[self.rng.gen_range(0..services.len())];
+                let endpoint = ["/api/v1/users", "/api/v1/orders", "/api/v1/payments"]
+                    [self.rng.gen_range(0..3)];
+                let request_id = format!("req-{}", self.rng.gen_range(100000..999999));
+
+                logs.push(format!("[{}] INFO {} - Incoming request", self.timestamp(), service));
+                logs.push(format!("  Request-ID: {}", request_id));
+                logs.push(format!("  Endpoint: POST {}", endpoint));
+                logs.push(format!("  User-Agent: service-mesh/1.2.3"));
+
+                if self.rng.gen_bool(0.3) {
+                    logs.push(format!("  Error: Authentication failed"));
+                } else {
+                    let duration = self.rng.gen_range(50..500);
+                    logs.push(format!("  Duration: {}ms - Status: 200", duration));
+                }
+            } else {
+                // 15% - Structured multi-line debug logs (3-5 lines)
+                let service = services[self.rng.gen_range(0..services.len())];
+                let operation = ["Database query", "Cache operation", "External API call"]
+                    [self.rng.gen_range(0..3)];
+
+                logs.push(format!("[{}] DEBUG {} - {}", self.timestamp(), service, operation));
+                logs.push(format!("  Operation: {}", operation));
+                logs.push(format!("  Latency: {}ms", self.rng.gen_range(10..200)));
+                logs.push(format!("  Records: {}", self.rng.gen_range(1..1000)));
+
+                if self.rng.gen_bool(0.4) {
+                    logs.push(format!("  Warning: Slow query detected"));
+                }
+            }
+        }
+
+        logs
+    }
 }
 
 // Simple chrono stub for timestamp generation
@@ -362,6 +476,7 @@ fn main() -> io::Result<()> {
         Preset::Web => generator.generate_web(args.lines),
         Preset::App => generator.generate_app(args.lines),
         Preset::Noisy => generator.generate_noisy(args.lines),
+        Preset::Multiline => generator.generate_multiline(args.lines),
     };
 
     let mut file = File::create(&args.output)?;

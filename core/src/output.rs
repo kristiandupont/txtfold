@@ -1,5 +1,6 @@
 //! Structured output format for analysis results
 
+use crate::clustering::{Cluster, EditDistanceClusterer};
 use crate::entry::Entry;
 use crate::template::{TemplateExtractor, TemplateGroup};
 use serde::{Deserialize, Serialize};
@@ -108,8 +109,13 @@ impl OutputBuilder {
         self
     }
 
-    /// Build the output from a template extractor
+    /// Build the output from a template extractor (backwards compatible alias)
     pub fn build(self, extractor: &TemplateExtractor) -> AnalysisOutput {
+        self.build_from_templates(extractor)
+    }
+
+    /// Build the output from a template extractor
+    pub fn build_from_templates(self, extractor: &TemplateExtractor) -> AnalysisOutput {
         let total_entries = self.entries.len();
         let groups = extractor.get_groups();
         let unique_patterns = groups.len();
@@ -155,6 +161,96 @@ impl OutputBuilder {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "template_extraction".to_string(),
+                compression_ratio,
+            },
+            summary: AnalysisSummary {
+                unique_patterns,
+                outliers: outliers.len(),
+                largest_cluster,
+            },
+            groups: group_outputs,
+            outliers,
+        }
+    }
+
+    /// Build the output from an edit distance clusterer
+    pub fn build_from_clusters(self, clusterer: &EditDistanceClusterer) -> AnalysisOutput {
+        let total_entries = self.entries.len();
+        let clusters = clusterer.get_clusters();
+        let unique_patterns = clusters.len();
+
+        // Convert clusters to output format
+        let mut group_outputs = Vec::new();
+        let mut largest_cluster = 0;
+
+        for (idx, cluster) in clusters.iter().enumerate() {
+            let count = cluster.entry_indices.len();
+            if count > largest_cluster {
+                largest_cluster = count;
+            }
+
+            let percentage = if total_entries > 0 {
+                (count as f64 / total_entries as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let samples = self.build_cluster_samples(cluster);
+            let line_ranges = self.build_cluster_line_ranges(cluster);
+
+            // Derive name from exemplar - extract meaningful part
+            let first_line = cluster
+                .exemplar
+                .lines()
+                .next()
+                .unwrap_or(&cluster.exemplar);
+
+            // Try to extract content after timestamp and log level
+            // Example: "[2024-01-15 10:00:00] ERROR Something happened" -> "Something happened"
+            let name = if let Some(after_bracket) = first_line.split(']').nth(1) {
+                // Remove log level (ERROR, INFO, etc.)
+                let words: Vec<&str> = after_bracket
+                    .trim()
+                    .split_whitespace()
+                    .skip_while(|w| {
+                        matches!(
+                            w.to_uppercase().as_str(),
+                            "ERROR" | "WARN" | "INFO" | "DEBUG" | "TRACE"
+                        )
+                    })
+                    .collect();
+
+                if words.is_empty() {
+                    first_line.chars().take(60).collect()
+                } else {
+                    words.join(" ").chars().take(60).collect()
+                }
+            } else {
+                first_line.chars().take(60).collect()
+            };
+
+            group_outputs.push(GroupOutput {
+                id: format!("cluster_{}", idx),
+                name,
+                pattern: cluster.exemplar.clone(),
+                count,
+                percentage,
+                samples,
+                line_ranges,
+            });
+        }
+
+        // Detect outliers (clusters with count = 1)
+        let outliers = self.detect_cluster_outliers(clusters);
+
+        // Calculate compression ratio
+        let compression_ratio = self.calculate_compression_ratio(&group_outputs);
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: "edit_distance_clustering".to_string(),
                 compression_ratio,
             },
             summary: AnalysisSummary {
@@ -251,6 +347,99 @@ impl OutputBuilder {
     }
 
     /// Detect outliers (entries that appear rarely)
+    /// Build sample entries for a cluster
+    fn build_cluster_samples(&self, cluster: &Cluster) -> Vec<SampleEntry> {
+        // For clustering, show multiple actual entries to demonstrate variation
+        // Take up to 3 different samples from the cluster
+        let sample_indices: Vec<usize> = cluster.entry_indices.iter().take(3).copied().collect();
+
+        let mut samples = Vec::new();
+
+        for &idx in &sample_indices {
+            if let Some(entry) = self.entries.get(idx) {
+                let content = entry.as_single_string();
+                let line_numbers = entry
+                    .metadata
+                    .as_ref()
+                    .map(|m| vec![m.line_numbers.first().copied().unwrap_or(0)])
+                    .unwrap_or_default();
+
+                // No variable values for clustering (would need to compute diffs)
+                let variable_values = HashMap::new();
+
+                samples.push(SampleEntry {
+                    content,
+                    line_numbers,
+                    variable_values,
+                });
+            }
+        }
+
+        samples
+    }
+
+    /// Build line ranges for a cluster
+    fn build_cluster_line_ranges(&self, cluster: &Cluster) -> Vec<(usize, usize)> {
+        let mut line_numbers = cluster.line_numbers.clone();
+
+        if line_numbers.is_empty() {
+            return Vec::new();
+        }
+
+        line_numbers.sort_unstable();
+
+        // Build ranges from consecutive line numbers
+        let mut ranges = Vec::new();
+        let mut range_start = line_numbers[0];
+        let mut range_end = line_numbers[0];
+
+        for &line_num in &line_numbers[1..] {
+            if line_num == range_end + 1 {
+                range_end = line_num;
+            } else {
+                ranges.push((range_start, range_end));
+                range_start = line_num;
+                range_end = line_num;
+            }
+        }
+        ranges.push((range_start, range_end));
+
+        ranges
+    }
+
+    /// Detect outliers from clusters
+    fn detect_cluster_outliers(&self, clusters: &[Cluster]) -> Vec<OutlierOutput> {
+        let mut outliers = Vec::new();
+        let mut outlier_count = 0;
+
+        for cluster in clusters {
+            if cluster.entry_indices.len() == 1 {
+                // Single occurrence = outlier
+                if let Some(&entry_idx) = cluster.entry_indices.first() {
+                    if let Some(entry) = self.entries.get(entry_idx) {
+                        let line_number = entry
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.line_numbers.first().copied())
+                            .unwrap_or(0);
+
+                        outliers.push(OutlierOutput {
+                            id: format!("outlier_{}", outlier_count),
+                            content: entry.as_single_string(),
+                            line_number,
+                            reason: "rare_pattern".to_string(),
+                            score: 1.0 / self.entries.len() as f64,
+                        });
+
+                        outlier_count += 1;
+                    }
+                }
+            }
+        }
+
+        outliers
+    }
+
     fn detect_outliers(&self, groups: &[&TemplateGroup]) -> Vec<OutlierOutput> {
         let mut outliers = Vec::new();
         let mut outlier_count = 0;

@@ -6,9 +6,11 @@
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
+pub mod clustering;
 pub mod entry;
 pub mod formatter;
 pub mod output;
+pub mod parser;
 pub mod patterns;
 pub mod template;
 pub mod tokenizer;
