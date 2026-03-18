@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use txtfold::clustering::EditDistanceClusterer;
 use txtfold::formatter::MarkdownFormatter;
+use txtfold::ngram::NgramOutlierDetector;
 use txtfold::output::OutputBuilder;
 use txtfold::parser::{EntryMode, EntryParser};
 use txtfold::template::TemplateExtractor;
@@ -28,13 +29,21 @@ struct Args {
     #[arg(short = 'e', long, default_value = "auto")]
     entry_mode: EntryModeArg,
 
-    /// Algorithm to use (template or clustering)
+    /// Algorithm to use (template, clustering, or ngram)
     #[arg(short = 'a', long, default_value = "template")]
     algorithm: AlgorithmArg,
 
     /// Clustering threshold (0.0-1.0, only for clustering algorithm)
     #[arg(long, default_value = "0.2")]
     threshold: f64,
+
+    /// N-gram size (for ngram algorithm, word-level)
+    #[arg(long, default_value = "2")]
+    ngram_size: usize,
+
+    /// Outlier threshold (for ngram algorithm). Use 0 for auto-detection (bottom ~5%)
+    #[arg(long, default_value = "0.0")]
+    outlier_threshold: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +101,7 @@ impl From<EntryModeArg> for EntryMode {
 enum AlgorithmArg {
     Template,
     Clustering,
+    Ngram,
 }
 
 impl std::str::FromStr for AlgorithmArg {
@@ -101,8 +111,9 @@ impl std::str::FromStr for AlgorithmArg {
         match s.to_lowercase().as_str() {
             "template" | "templates" => Ok(AlgorithmArg::Template),
             "cluster" | "clustering" | "edit-distance" => Ok(AlgorithmArg::Clustering),
+            "ngram" | "n-gram" | "ngrams" => Ok(AlgorithmArg::Ngram),
             _ => Err(format!(
-                "Invalid algorithm: {}. Use 'template' or 'clustering'",
+                "Invalid algorithm: {}. Use 'template', 'clustering', or 'ngram'",
                 s
             )),
         }
@@ -153,6 +164,16 @@ fn main() -> Result<()> {
                 builder = builder.with_input_file(name);
             }
             builder.build_from_clusters(&clusterer)
+        }
+        AlgorithmArg::Ngram => {
+            let mut detector = NgramOutlierDetector::new(args.ngram_size, args.outlier_threshold);
+            detector.process(&entries);
+
+            let mut builder = OutputBuilder::new(entries);
+            if let Some(name) = filename {
+                builder = builder.with_input_file(name);
+            }
+            builder.build_from_ngrams(&detector)
         }
     };
 

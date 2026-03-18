@@ -47,9 +47,30 @@ impl MarkdownFormatter {
         ));
         md.push_str("\n");
 
+        // Results section - format based on algorithm type
+        use crate::output::AlgorithmResults;
+        match &output.results {
+            AlgorithmResults::Grouped { groups, outliers } => {
+                Self::format_grouped_results(&mut md, groups, outliers, &output.metadata.algorithm);
+            }
+            AlgorithmResults::OutlierFocused { baseline, outliers } => {
+                Self::format_outlier_focused_results(&mut md, baseline, outliers);
+            }
+        }
+
+        md
+    }
+
+    /// Format grouped results (template extraction, clustering)
+    fn format_grouped_results(
+        md: &mut String,
+        groups: &[crate::output::GroupOutput],
+        outliers: &[crate::output::OutlierOutput],
+        algorithm: &str,
+    ) {
         // Pattern groups section
         md.push_str("## Pattern Groups\n\n");
-        for group in &output.groups {
+        for group in groups {
             // Header with derived name, count and percentage
             md.push_str(&format!(
                 "### {} ({} entries, {:.1}%)\n\n",
@@ -57,7 +78,7 @@ impl MarkdownFormatter {
             ));
 
             // Pattern (only show for template extraction, skip for clustering since samples show it)
-            let is_clustering = output.metadata.algorithm == "edit_distance_clustering";
+            let is_clustering = algorithm == "edit_distance_clustering";
             if !is_clustering {
                 md.push_str("**Pattern**:\n```\n");
                 md.push_str(&group.pattern);
@@ -116,11 +137,11 @@ impl MarkdownFormatter {
         }
 
         // Outliers section
-        if !output.outliers.is_empty() {
+        if !outliers.is_empty() {
             md.push_str("## Outliers\n\n");
             md.push_str("Rare patterns that appear only once:\n\n");
 
-            for outlier in &output.outliers {
+            for outlier in outliers {
                 md.push_str(&format!(
                     "### {} (Line {})\n\n",
                     outlier.id, outlier.line_number
@@ -132,8 +153,76 @@ impl MarkdownFormatter {
                 md.push_str("\n```\n\n");
             }
         }
+    }
 
-        md
+    /// Format outlier-focused results (n-gram analysis)
+    fn format_outlier_focused_results(
+        md: &mut String,
+        baseline: &crate::output::BaselineOutput,
+        outliers: &[crate::output::OutlierOutput],
+    ) {
+        // Baseline section
+        md.push_str("## Baseline\n\n");
+        md.push_str(&format!("{}\n\n", baseline.description));
+        md.push_str(&format!(
+            "- **Normal entries**: {} ({:.1}%)\n",
+            baseline.normal_count, baseline.normal_percentage
+        ));
+
+        if !baseline.common_features.is_empty() {
+            md.push_str("\n**Common features**:\n");
+            for feature in &baseline.common_features {
+                md.push_str(&format!("- `{}`\n", feature));
+            }
+        }
+
+        // Show threshold information if available
+        if let Some(ref threshold_info) = baseline.threshold {
+            md.push_str("\n**Outlier detection**:\n");
+            if threshold_info.auto_detected {
+                md.push_str(&format!(
+                    "- Threshold: {:.6} (auto-detected for bottom ~5%)\n",
+                    threshold_info.value
+                ));
+            } else {
+                md.push_str(&format!(
+                    "- Threshold: {:.6} (user-specified)\n",
+                    threshold_info.value
+                ));
+            }
+
+            if let Some(ref stats) = threshold_info.score_stats {
+                md.push_str(&format!(
+                    "- Score range: {:.6} to {:.6} (mean: {:.6}, median: {:.6})\n",
+                    stats.min, stats.max, stats.mean, stats.median
+                ));
+            }
+        }
+
+        md.push_str("\n");
+
+        // Outliers section
+        md.push_str("## Outliers\n\n");
+        if outliers.is_empty() {
+            md.push_str("No outliers detected.\n\n");
+        } else {
+            md.push_str(&format!(
+                "{} entries with unusual patterns:\n\n",
+                outliers.len()
+            ));
+
+            for outlier in outliers {
+                md.push_str(&format!(
+                    "### {} (Line {})\n\n",
+                    outlier.id, outlier.line_number
+                ));
+                md.push_str(&format!("- **Reason**: {}\n", outlier.reason));
+                md.push_str(&format!("- **Score**: {:.6}\n", outlier.score));
+                md.push_str("\n```\n");
+                md.push_str(&outlier.content);
+                md.push_str("\n```\n\n");
+            }
+        }
     }
 }
 

@@ -2,6 +2,7 @@
 
 use crate::clustering::{Cluster, EditDistanceClusterer};
 use crate::entry::Entry;
+use crate::ngram::NgramOutlierDetector;
 use crate::template::{TemplateExtractor, TemplateGroup};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,10 +14,61 @@ pub struct AnalysisOutput {
     pub metadata: AnalysisMetadata,
     /// Summary statistics
     pub summary: AnalysisSummary,
-    /// Template groups (patterns found)
-    pub groups: Vec<GroupOutput>,
-    /// Detected outliers
-    pub outliers: Vec<OutlierOutput>,
+    /// Algorithm-specific results
+    pub results: AlgorithmResults,
+}
+
+/// Algorithm-specific output formats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AlgorithmResults {
+    /// Pattern grouping with optional outliers (template extraction, clustering)
+    Grouped {
+        groups: Vec<GroupOutput>,
+        outliers: Vec<OutlierOutput>,
+    },
+    /// Outlier-focused with baseline information (n-gram analysis)
+    OutlierFocused {
+        baseline: BaselineOutput,
+        outliers: Vec<OutlierOutput>,
+    },
+}
+
+/// Baseline information for outlier-focused algorithms
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BaselineOutput {
+    /// Description of the baseline/common patterns
+    pub description: String,
+    /// Number of entries considered "normal"
+    pub normal_count: usize,
+    /// Percentage of entries considered "normal"
+    pub normal_percentage: f64,
+    /// Top common features (e.g., n-grams, tokens)
+    pub common_features: Vec<String>,
+    /// Threshold used for outlier detection (if applicable)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<ThresholdInfo>,
+}
+
+/// Information about threshold used for outlier detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThresholdInfo {
+    /// The threshold value used
+    pub value: f64,
+    /// Whether this was auto-detected
+    pub auto_detected: bool,
+    /// Score statistics
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_stats: Option<ScoreStatsOutput>,
+}
+
+/// Score statistics for n-gram analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreStatsOutput {
+    pub min: f64,
+    pub max: f64,
+    pub mean: f64,
+    pub median: f64,
 }
 
 /// Metadata about the analysis run
@@ -168,8 +220,103 @@ impl OutputBuilder {
                 outliers: outliers.len(),
                 largest_cluster,
             },
-            groups: group_outputs,
-            outliers,
+            results: AlgorithmResults::Grouped {
+                groups: group_outputs,
+                outliers,
+            },
+        }
+    }
+
+    /// Build the output from an n-gram outlier detector
+    pub fn build_from_ngrams(self, detector: &NgramOutlierDetector) -> AnalysisOutput {
+        let total_entries = self.entries.len();
+        let outlier_indices = detector.get_outliers();
+
+        // Build outlier outputs
+        let mut outliers = Vec::new();
+        for (outlier_idx, &entry_idx) in outlier_indices.iter().enumerate() {
+            if let Some(entry) = self.entries.get(entry_idx) {
+                let line_number = entry
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.line_numbers.first().copied())
+                    .unwrap_or(0);
+
+                let score = detector.get_score(entry_idx).unwrap_or(0.0);
+
+                outliers.push(OutlierOutput {
+                    id: format!("outlier_{}", outlier_idx),
+                    content: entry.as_single_string(),
+                    line_number,
+                    reason: "rare_ngrams".to_string(),
+                    score,
+                });
+            }
+        }
+
+        // Build baseline info
+        let normal_count = detector.get_normal_count(total_entries);
+        let normal_percentage = detector.get_normal_percentage(total_entries);
+        let top_ngrams = detector.get_top_ngrams(10);
+        let common_features: Vec<String> = top_ngrams
+            .iter()
+            .map(|(ng, count)| format!("'{}' ({}x)", ng, count))
+            .collect();
+
+        // Build threshold info
+        let stats = detector.get_score_stats();
+        let threshold_info = ThresholdInfo {
+            value: detector.get_effective_threshold(),
+            auto_detected: detector.is_auto_threshold(),
+            score_stats: Some(ScoreStatsOutput {
+                min: stats.min,
+                max: stats.max,
+                mean: stats.mean,
+                median: stats.median,
+            }),
+        };
+
+        let baseline = BaselineOutput {
+            description: format!(
+                "Most entries share common patterns. {} entries analyzed.",
+                total_entries
+            ),
+            normal_count,
+            normal_percentage,
+            common_features: common_features.clone(),
+            threshold: Some(threshold_info),
+        };
+
+        // Calculate compression ratio
+        let compressed_size = baseline.description.len()
+            + common_features.iter().map(|s| s.len()).sum::<usize>()
+            + outliers.iter().map(|o| o.content.len()).sum::<usize>();
+
+        let original_size: usize = self
+            .entries
+            .iter()
+            .map(|e| e.as_single_string().len())
+            .sum();
+
+        let compression_ratio = if original_size > 0 {
+            compressed_size as f64 / original_size as f64
+        } else {
+            0.0
+        };
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: "ngram_outlier_detection".to_string(),
+                compression_ratio,
+            },
+            summary: AnalysisSummary {
+                unique_patterns: 0, // N-gram doesn't produce discrete patterns
+                outliers: outliers.len(),
+                largest_cluster: normal_count,
+            },
+            results: AlgorithmResults::OutlierFocused { baseline, outliers },
         }
     }
 
@@ -258,8 +405,10 @@ impl OutputBuilder {
                 outliers: outliers.len(),
                 largest_cluster,
             },
-            groups: group_outputs,
-            outliers,
+            results: AlgorithmResults::Grouped {
+                groups: group_outputs,
+                outliers,
+            },
         }
     }
 
@@ -520,7 +669,13 @@ mod tests {
         assert_eq!(output.metadata.algorithm, "template_extraction");
         assert_eq!(output.summary.unique_patterns, 2);
         assert_eq!(output.summary.largest_cluster, 2);
-        assert_eq!(output.groups.len(), 2);
+
+        // Check that we have grouped results
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 2);
+        } else {
+            panic!("Expected Grouped results");
+        }
     }
 
     #[test]
@@ -565,10 +720,15 @@ mod tests {
 
         // Should detect the single ERROR as an outlier
         assert_eq!(output.summary.outliers, 1);
-        assert_eq!(output.outliers.len(), 1);
-        assert_eq!(output.outliers[0].content, "ERROR Fatal exception");
-        assert_eq!(output.outliers[0].line_number, 4);
-        assert_eq!(output.outliers[0].reason, "rare_pattern");
+
+        if let AlgorithmResults::Grouped { outliers, .. } = &output.results {
+            assert_eq!(outliers.len(), 1);
+            assert_eq!(outliers[0].content, "ERROR Fatal exception");
+            assert_eq!(outliers[0].line_number, 4);
+            assert_eq!(outliers[0].reason, "rare_pattern");
+        } else {
+            panic!("Expected Grouped results");
+        }
     }
 
     #[test]
@@ -604,11 +764,15 @@ mod tests {
         let output = OutputBuilder::new(entries).build(&extractor);
 
         // Type A should be 75%, Type B should be 25%
-        assert_eq!(output.groups.len(), 2);
-        assert_eq!(output.groups[0].count, 3);
-        assert_eq!(output.groups[0].percentage, 75.0);
-        assert_eq!(output.groups[1].count, 1);
-        assert_eq!(output.groups[1].percentage, 25.0);
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 2);
+            assert_eq!(groups[0].count, 3);
+            assert_eq!(groups[0].percentage, 75.0);
+            assert_eq!(groups[1].count, 1);
+            assert_eq!(groups[1].percentage, 25.0);
+        } else {
+            panic!("Expected Grouped results");
+        }
     }
 
     #[test]
@@ -627,11 +791,15 @@ mod tests {
         let output = OutputBuilder::new(entries).build(&extractor);
 
         // Should have two ranges: [1-3] and [10-11]
-        assert_eq!(output.groups.len(), 1);
-        let ranges = &output.groups[0].line_ranges;
-        assert_eq!(ranges.len(), 2);
-        assert_eq!(ranges[0], (1, 3));
-        assert_eq!(ranges[1], (10, 11));
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 1);
+            let ranges = &groups[0].line_ranges;
+            assert_eq!(ranges.len(), 2);
+            assert_eq!(ranges[0], (1, 3));
+            assert_eq!(ranges[1], (10, 11));
+        } else {
+            panic!("Expected Grouped results");
+        }
     }
 
     #[test]
@@ -647,12 +815,16 @@ mod tests {
 
         let output = OutputBuilder::new(entries).build(&extractor);
 
-        assert_eq!(output.groups.len(), 1);
-        let samples = &output.groups[0].samples;
-        assert!(!samples.is_empty());
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 1);
+            let samples = &groups[0].samples;
+            assert!(!samples.is_empty());
 
-        // Should have captured the user IDs
-        let var_values = &samples[0].variable_values;
-        assert!(!var_values.is_empty());
+            // Should have captured the user IDs
+            let var_values = &samples[0].variable_values;
+            assert!(!var_values.is_empty());
+        } else {
+            panic!("Expected Grouped results");
+        }
     }
 }
