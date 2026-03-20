@@ -2,6 +2,7 @@
 
 use crate::entry::Entry;
 use regex::Regex;
+use serde_json::Value;
 
 /// Entry parsing mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +160,74 @@ fn parse_multi_line(content: &str) -> Vec<Entry> {
     entries
 }
 
+/// Parse JSON array into entries (each array element becomes an entry)
+pub fn parse_json_array(content: &str) -> Result<Vec<Value>, String> {
+    let parsed: Value = serde_json::from_str(content)
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+
+    match parsed {
+        Value::Array(arr) => Ok(arr),
+        Value::Object(_) => {
+            // Single object, wrap in array
+            Ok(vec![parsed])
+        }
+        _ => {
+            // Unexpected JSON type
+            Err("Expected JSON array or object, got other type".to_string())
+        }
+    }
+}
+
+/// Parse JSON map/object into entries (each value becomes an entry)
+/// Returns (values, keys) tuple
+pub fn parse_json_map(content: &str) -> Result<(Vec<Value>, Vec<String>), String> {
+    let parsed: Value = serde_json::from_str(content)
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+
+    match parsed {
+        Value::Object(map) => {
+            let mut keys = Vec::new();
+            let mut values = Vec::new();
+
+            for (key, value) in map {
+                keys.push(key);
+                values.push(value);
+            }
+
+            Ok((values, keys))
+        }
+        _ => {
+            Err("Expected JSON object/map, got other type".to_string())
+        }
+    }
+}
+
+/// Detect if content is JSON (array or object)
+pub fn is_json(content: &str) -> bool {
+    let trimmed = content.trim();
+    (trimmed.starts_with('[') && trimmed.ends_with(']'))
+        || (trimmed.starts_with('{') && trimmed.ends_with('}'))
+}
+
+/// Detect if JSON content is a map (object with values that are objects)
+/// vs an array or a single object entry
+pub fn is_json_map(content: &str) -> bool {
+    if let Ok(parsed) = serde_json::from_str::<Value>(content) {
+        if let Value::Object(map) = parsed {
+            // Check if at least one value is an object (suggests map structure)
+            // and we have multiple keys
+            if map.len() > 1 {
+                let object_values = map.values()
+                    .filter(|v| matches!(v, Value::Object(_)))
+                    .count();
+                // If majority of values are objects, treat as map
+                return object_values as f64 / map.len() as f64 > 0.5;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,5 +377,76 @@ User charlie logged out
         assert_eq!(entries[1].first_line(), Some("Processing request for user bob"));
         assert_eq!(entries[2].first_line(), Some("Database query completed"));
         assert_eq!(entries[3].first_line(), Some("User charlie logged out"));
+    }
+
+    #[test]
+    fn test_json_array_parsing() {
+        let content = r#"[
+            {"name": "Alice", "age": 30},
+            {"name": "Bob", "age": 25}
+        ]"#;
+
+        let values = parse_json_array(content).unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0]["name"], "Alice");
+        assert_eq!(values[1]["name"], "Bob");
+    }
+
+    #[test]
+    fn test_json_single_object() {
+        let content = r#"{"name": "Alice", "age": 30}"#;
+
+        let values = parse_json_array(content).unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0]["name"], "Alice");
+    }
+
+    #[test]
+    fn test_is_json_detection() {
+        assert!(is_json(r#"[{"key": "value"}]"#));
+        assert!(is_json(r#"{"key": "value"}"#));
+        assert!(is_json("  [1, 2, 3]  "));
+        assert!(!is_json("plain text"));
+        assert!(!is_json("[incomplete"));
+    }
+
+    #[test]
+    fn test_json_map_parsing() {
+        let content = r#"{
+            "user_1": {"name": "Alice", "age": 30},
+            "user_2": {"name": "Bob", "age": 25}
+        }"#;
+
+        let (values, keys) = parse_json_map(content).unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&"user_1".to_string()));
+        assert!(keys.contains(&"user_2".to_string()));
+    }
+
+    #[test]
+    fn test_is_json_map_detection() {
+        // Map with object values
+        let map_content = r#"{
+            "user_1": {"name": "Alice"},
+            "user_2": {"name": "Bob"}
+        }"#;
+        assert!(is_json_map(map_content));
+
+        // Array (not a map)
+        let array_content = r#"[{"name": "Alice"}, {"name": "Bob"}]"#;
+        assert!(!is_json_map(array_content));
+
+        // Single object (not a map)
+        let single_content = r#"{"name": "Alice", "age": 30}"#;
+        assert!(!is_json_map(single_content));
+
+        // Map with mixed values (mostly objects)
+        let mixed_content = r#"{
+            "user_1": {"name": "Alice"},
+            "user_2": {"name": "Bob"},
+            "count": 2
+        }"#;
+        assert!(is_json_map(mixed_content));
     }
 }

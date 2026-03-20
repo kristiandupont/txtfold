@@ -13,6 +13,8 @@ pub mod ngram;
 pub mod output;
 pub mod parser;
 pub mod patterns;
+pub mod schema;
+pub mod schema_clustering;
 pub mod template;
 pub mod tokenizer;
 

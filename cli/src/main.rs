@@ -6,7 +6,8 @@ use txtfold::clustering::EditDistanceClusterer;
 use txtfold::formatter::MarkdownFormatter;
 use txtfold::ngram::NgramOutlierDetector;
 use txtfold::output::OutputBuilder;
-use txtfold::parser::{EntryMode, EntryParser};
+use txtfold::parser::{is_json, is_json_map, parse_json_array, parse_json_map, EntryMode, EntryParser};
+use txtfold::schema_clustering::SchemaClusterer;
 use txtfold::template::TemplateExtractor;
 
 /// txtfold - Deterministic text compression for log analysis
@@ -25,16 +26,22 @@ struct Args {
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Entry parsing mode (single, multiline, or auto)
+    /// Input format (text, json-array, json-map, or auto-detect)
+    #[arg(short = 'i', long = "input-format", default_value = "auto")]
+    input_format: InputFormatArg,
+
+    /// Entry parsing mode (single, multiline, or auto) - for text inputs only
     #[arg(short = 'e', long, default_value = "auto")]
     entry_mode: EntryModeArg,
 
-    /// Algorithm to use (template, clustering, or ngram)
-    #[arg(short = 'a', long, default_value = "template")]
+    /// Algorithm to use (template, clustering, ngram, schema, or auto)
+    #[arg(short = 'a', long, default_value = "auto")]
     algorithm: AlgorithmArg,
 
-    /// Clustering threshold (0.0-1.0, only for clustering algorithm)
-    #[arg(long, default_value = "0.2")]
+    /// Similarity threshold (0.0-1.0, for clustering and schema algorithms)
+    /// - clustering: how similar entries must be to group
+    /// - schema: fraction of fields that must match (1.0 = exact, 0.8 = 80% match)
+    #[arg(long, default_value = "0.8")]
     threshold: f64,
 
     /// N-gram size (for ngram algorithm, word-level)
@@ -60,6 +67,31 @@ impl std::str::FromStr for OutputFormat {
             "json" => Ok(OutputFormat::Json),
             "markdown" | "md" => Ok(OutputFormat::Markdown),
             _ => Err(format!("Invalid format: {}. Use 'json' or 'markdown'", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputFormatArg {
+    Auto,
+    Text,
+    JsonArray,
+    JsonMap,
+}
+
+impl std::str::FromStr for InputFormatArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(InputFormatArg::Auto),
+            "text" | "log" | "logs" => Ok(InputFormatArg::Text),
+            "json-array" | "json_array" | "jsonarray" | "array" => Ok(InputFormatArg::JsonArray),
+            "json-map" | "json_map" | "jsonmap" | "map" => Ok(InputFormatArg::JsonMap),
+            _ => Err(format!(
+                "Invalid input format: {}. Use 'auto', 'text', 'json-array', or 'json-map'",
+                s
+            )),
         }
     }
 }
@@ -99,9 +131,11 @@ impl From<EntryModeArg> for EntryMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AlgorithmArg {
+    Auto,
     Template,
     Clustering,
     Ngram,
+    Schema,
 }
 
 impl std::str::FromStr for AlgorithmArg {
@@ -109,11 +143,13 @@ impl std::str::FromStr for AlgorithmArg {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "auto" => Ok(AlgorithmArg::Auto),
             "template" | "templates" => Ok(AlgorithmArg::Template),
             "cluster" | "clustering" | "edit-distance" => Ok(AlgorithmArg::Clustering),
             "ngram" | "n-gram" | "ngrams" => Ok(AlgorithmArg::Ngram),
+            "schema" | "json" => Ok(AlgorithmArg::Schema),
             _ => Err(format!(
-                "Invalid algorithm: {}. Use 'template', 'clustering', or 'ngram'",
+                "Invalid algorithm: {}. Use 'auto', 'template', 'clustering', 'ngram', or 'schema'",
                 s
             )),
         }
@@ -127,15 +163,6 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(&args.input)
         .with_context(|| format!("Failed to read input file: {:?}", args.input))?;
 
-    // Parse entries using the specified mode
-    let parser = EntryParser::new(args.entry_mode.into());
-    let entries = parser.parse(&content);
-
-    if entries.is_empty() {
-        eprintln!("Warning: Input file is empty");
-        return Ok(());
-    }
-
     // Get filename for metadata
     let filename = args
         .input
@@ -143,37 +170,105 @@ fn main() -> Result<()> {
         .and_then(|n| n.to_str())
         .map(|s| s.to_string());
 
+    // Detect input format
+    let input_format = match args.input_format {
+        InputFormatArg::Auto => {
+            if is_json(&content) {
+                if is_json_map(&content) {
+                    InputFormatArg::JsonMap
+                } else {
+                    InputFormatArg::JsonArray
+                }
+            } else {
+                InputFormatArg::Text
+            }
+        }
+        other => other,
+    };
+
+    // Auto-select algorithm based on input format
+    let algorithm = match args.algorithm {
+        AlgorithmArg::Auto => {
+            match input_format {
+                InputFormatArg::JsonArray | InputFormatArg::JsonMap => AlgorithmArg::Schema,
+                InputFormatArg::Text => AlgorithmArg::Template,
+                InputFormatArg::Auto => unreachable!("Auto resolved above"),
+            }
+        }
+        other => other,
+    };
+
     // Run selected algorithm
-    let output = match args.algorithm {
-        AlgorithmArg::Template => {
-            let mut extractor = TemplateExtractor::new();
-            extractor.process(&entries);
-
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename {
-                builder = builder.with_input_file(name);
+    let output = if algorithm == AlgorithmArg::Schema {
+        // JSON/Schema path
+        let values = match input_format {
+            InputFormatArg::JsonMap => {
+                let (values, _keys) = parse_json_map(&content)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {}", e))?;
+                values
             }
-            builder.build_from_templates(&extractor)
+            InputFormatArg::JsonArray => {
+                parse_json_array(&content)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {}", e))?
+            }
+            _ => anyhow::bail!("Schema algorithm requires JSON input"),
+        };
+
+        if values.is_empty() {
+            anyhow::bail!("No JSON objects found in input");
         }
-        AlgorithmArg::Clustering => {
-            let mut clusterer = EditDistanceClusterer::new(args.threshold);
-            clusterer.process(&entries);
 
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename {
-                builder = builder.with_input_file(name);
-            }
-            builder.build_from_clusters(&clusterer)
+        let mut clusterer = SchemaClusterer::new(args.threshold);
+        clusterer.process(&values);
+
+        let mut builder = OutputBuilder::new(vec![]); // Empty entries for JSON
+        if let Some(name) = filename {
+            builder = builder.with_input_file(name);
         }
-        AlgorithmArg::Ngram => {
-            let mut detector = NgramOutlierDetector::new(args.ngram_size, args.outlier_threshold);
-            detector.process(&entries);
+        builder.build_from_schemas(&clusterer, &values)
+    } else {
+        // Text log path
+        let parser = EntryParser::new(args.entry_mode.into());
+        let entries = parser.parse(&content);
 
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename {
-                builder = builder.with_input_file(name);
+        if entries.is_empty() {
+            eprintln!("Warning: Input file is empty");
+            return Ok(());
+        }
+
+        match algorithm {
+            AlgorithmArg::Template => {
+                let mut extractor = TemplateExtractor::new();
+                extractor.process(&entries);
+
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(name) = filename {
+                    builder = builder.with_input_file(name);
+                }
+                builder.build_from_templates(&extractor)
             }
-            builder.build_from_ngrams(&detector)
+            AlgorithmArg::Clustering => {
+                let mut clusterer = EditDistanceClusterer::new(args.threshold);
+                clusterer.process(&entries);
+
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(name) = filename {
+                    builder = builder.with_input_file(name);
+                }
+                builder.build_from_clusters(&clusterer)
+            }
+            AlgorithmArg::Ngram => {
+                let mut detector = NgramOutlierDetector::new(args.ngram_size, args.outlier_threshold);
+                detector.process(&entries);
+
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(name) = filename {
+                    builder = builder.with_input_file(name);
+                }
+                builder.build_from_ngrams(&detector)
+            }
+            AlgorithmArg::Schema => unreachable!("Schema handled above"),
+            AlgorithmArg::Auto => unreachable!("Auto resolved above"),
         }
     };
 

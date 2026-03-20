@@ -3,8 +3,10 @@
 use crate::clustering::{Cluster, EditDistanceClusterer};
 use crate::entry::Entry;
 use crate::ngram::NgramOutlierDetector;
+use crate::schema_clustering::SchemaClusterer;
 use crate::template::{TemplateExtractor, TemplateGroup};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// Complete analysis output
@@ -30,6 +32,11 @@ pub enum AlgorithmResults {
     /// Outlier-focused with baseline information (n-gram analysis)
     OutlierFocused {
         baseline: BaselineOutput,
+        outliers: Vec<OutlierOutput>,
+    },
+    /// Schema-based grouping (JSON/structured data)
+    SchemaGrouped {
+        schemas: Vec<SchemaGroupOutput>,
         outliers: Vec<OutlierOutput>,
     },
 }
@@ -138,6 +145,27 @@ pub struct OutlierOutput {
     pub reason: String,
     /// Outlier score (lower = more unusual)
     pub score: f64,
+}
+
+/// A schema group (for JSON/structured data)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaGroupOutput {
+    /// Group identifier
+    pub id: String,
+    /// Human-readable name
+    pub name: String,
+    /// Schema description (field names and types)
+    pub schema_description: String,
+    /// Fields present in this schema
+    pub fields: Vec<String>,
+    /// Number of entries with this schema
+    pub count: usize,
+    /// Percentage of total entries
+    pub percentage: f64,
+    /// Sample field values
+    pub sample_values: HashMap<String, Vec<String>>,
+    /// Entry indices (which entries have this schema)
+    pub entry_indices: Vec<usize>,
 }
 
 /// Builder for creating AnalysisOutput from extraction results
@@ -644,6 +672,122 @@ impl OutputBuilder {
             .sum();
 
         compressed_size as f64 / original_size as f64
+    }
+
+    /// Build the output from a schema clusterer (for JSON data)
+    pub fn build_from_schemas(
+        self,
+        clusterer: &SchemaClusterer,
+        values: &[Value],
+    ) -> AnalysisOutput {
+        let total_entries = values.len();
+        let clusters = clusterer.get_clusters();
+
+        // Build schema group outputs
+        let mut schema_outputs = Vec::new();
+        for (idx, cluster) in clusters.iter().enumerate() {
+            let count = cluster.entry_indices.len();
+            let percentage = (count as f64 / total_entries as f64) * 100.0;
+
+            // Generate a name from the schema (use first few fields or common pattern)
+            let name = if cluster.schema.fields.is_empty() {
+                format!("Schema {}", idx)
+            } else if cluster.schema.fields.len() <= 3 {
+                cluster.schema.fields.join(", ")
+            } else {
+                format!(
+                    "{}, ... ({} fields)",
+                    cluster.schema.fields[..2].join(", "),
+                    cluster.schema.fields.len()
+                )
+            };
+
+            // Limit sample values to first 5 unique per field
+            let mut limited_samples: HashMap<String, Vec<String>> = HashMap::new();
+            for (field, vals) in &cluster.sample_values {
+                let mut unique: Vec<String> = vals.iter().cloned().collect();
+                unique.sort();
+                unique.dedup();
+                unique.truncate(5);
+                limited_samples.insert(field.clone(), unique);
+            }
+
+            schema_outputs.push(SchemaGroupOutput {
+                id: format!("schema_{}", idx),
+                name,
+                schema_description: cluster.schema.description(),
+                fields: cluster.schema.fields.clone(),
+                count,
+                percentage,
+                sample_values: limited_samples,
+                entry_indices: cluster.entry_indices.clone(),
+            });
+        }
+
+        // Detect outliers (singleton clusters)
+        let singletons = clusterer.get_singleton_clusters();
+        let mut outliers = Vec::new();
+        for (outlier_idx, cluster) in singletons.iter().enumerate() {
+            if let Some(&entry_idx) = cluster.entry_indices.first() {
+                if let Some(value) = values.get(entry_idx) {
+                    let content = serde_json::to_string_pretty(value).unwrap_or_default();
+
+                    outliers.push(OutlierOutput {
+                        id: format!("outlier_{}", outlier_idx),
+                        content,
+                        line_number: entry_idx + 1,
+                        reason: "unique_schema".to_string(),
+                        score: 0.0,
+                    });
+                }
+            }
+        }
+
+        // Calculate compression ratio
+        let original_size: usize = values
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap_or_default().len())
+            .sum();
+
+        let compressed_size: usize = schema_outputs
+            .iter()
+            .map(|s| {
+                s.schema_description.len()
+                    + s.sample_values
+                        .values()
+                        .map(|vals| vals.iter().map(|v| v.len()).sum::<usize>())
+                        .sum::<usize>()
+            })
+            .sum::<usize>()
+            + outliers.iter().map(|o| o.content.len()).sum::<usize>();
+
+        let compression_ratio = if original_size > 0 {
+            compressed_size as f64 / original_size as f64
+        } else {
+            0.0
+        };
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: "schema_clustering".to_string(),
+                compression_ratio,
+            },
+            summary: AnalysisSummary {
+                unique_patterns: schema_outputs.len(),
+                outliers: outliers.len(),
+                largest_cluster: schema_outputs
+                    .iter()
+                    .map(|s| s.count)
+                    .max()
+                    .unwrap_or(0),
+            },
+            results: AlgorithmResults::SchemaGrouped {
+                schemas: schema_outputs,
+                outliers,
+            },
+        }
     }
 }
 

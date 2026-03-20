@@ -56,6 +56,9 @@ impl MarkdownFormatter {
             AlgorithmResults::OutlierFocused { baseline, outliers } => {
                 Self::format_outlier_focused_results(&mut md, baseline, outliers);
             }
+            AlgorithmResults::SchemaGrouped { schemas, outliers } => {
+                Self::format_schema_grouped_results(&mut md, schemas, outliers);
+            }
         }
 
         md
@@ -219,6 +222,63 @@ impl MarkdownFormatter {
                 md.push_str(&format!("- **Reason**: {}\n", outlier.reason));
                 md.push_str(&format!("- **Score**: {:.6}\n", outlier.score));
                 md.push_str("\n```\n");
+                md.push_str(&outlier.content);
+                md.push_str("\n```\n\n");
+            }
+        }
+    }
+
+    /// Format schema-grouped results (JSON/structured data)
+    fn format_schema_grouped_results(
+        md: &mut String,
+        schemas: &[crate::output::SchemaGroupOutput],
+        outliers: &[crate::output::OutlierOutput],
+    ) {
+        // Schema groups section
+        md.push_str("## Schema Groups\n\n");
+        for schema in schemas {
+            // Header with name, count and percentage
+            md.push_str(&format!(
+                "### {} ({} entries, {:.1}%)\n\n",
+                schema.name, schema.count, schema.percentage
+            ));
+
+            // Schema description
+            md.push_str("**Schema**:\n```\n");
+            md.push_str(&schema.schema_description);
+            md.push_str("\n```\n\n");
+
+            // Sample values
+            if !schema.sample_values.is_empty() {
+                md.push_str("**Sample values**:\n");
+                for (field, values) in &schema.sample_values {
+                    if !values.is_empty() {
+                        md.push_str(&format!("- `{}`: ", field));
+                        let value_str: Vec<String> =
+                            values.iter().map(|v| format!("`{}`", v)).collect();
+                        md.push_str(&value_str.join(", "));
+                        md.push_str("\n");
+                    }
+                }
+                md.push_str("\n");
+            }
+        }
+
+        // Outliers section
+        if !outliers.is_empty() {
+            md.push_str("## Outliers\n\n");
+            md.push_str(&format!(
+                "{} entries with unique schemas:\n\n",
+                outliers.len()
+            ));
+
+            for outlier in outliers {
+                md.push_str(&format!(
+                    "### {} (Entry {})\n\n",
+                    outlier.id, outlier.line_number
+                ));
+                md.push_str(&format!("- **Reason**: {}\n", outlier.reason));
+                md.push_str("\n```json\n");
                 md.push_str(&outlier.content);
                 md.push_str("\n```\n\n");
             }
