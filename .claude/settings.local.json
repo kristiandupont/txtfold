@@ -1,13 +1,14 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
-      "Bash(cargo test)"
+      "Bash(cargo test)",
+      "Bash(cargo build:*)"
     ],
     "deny": [],
     "ask": []
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

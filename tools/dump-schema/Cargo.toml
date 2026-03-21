@@ -1,0 +1,14 @@
+[package]
+name = "dump-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dump-schema"
+path = "src/main.rs"
+
+[dependencies]
+txtfold = { path = "../../core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

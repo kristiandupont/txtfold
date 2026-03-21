@@ -3,8 +3,10 @@
 //! This module provides const-friendly metadata structures that allow each
 //! component to declare its configuration needs alongside its implementation.
 
+use serde::Serialize;
+
 /// Metadata describing an algorithm
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct AlgorithmMetadata {
     /// Primary name of the algorithm
     pub name: &'static str,
@@ -21,7 +23,7 @@ pub struct AlgorithmMetadata {
 }
 
 /// Metadata describing an output formatter
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct FormatterMetadata {
     /// Primary name of the formatter
     pub name: &'static str,
@@ -38,7 +40,7 @@ pub struct FormatterMetadata {
 }
 
 /// Metadata describing an input format
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct InputFormatMetadata {
     /// Primary name of the format
     pub name: &'static str,
@@ -51,7 +53,7 @@ pub struct InputFormatMetadata {
 }
 
 /// A sub-option for an input format (e.g., entry-mode for text)
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct SubOption {
     /// Name of the sub-option
     pub name: &'static str,
@@ -64,7 +66,7 @@ pub struct SubOption {
 }
 
 /// A configurable parameter for an algorithm
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Parameter {
     /// Parameter name (as it appears in code/CLI)
     pub name: &'static str,
@@ -81,7 +83,7 @@ pub struct Parameter {
 }
 
 /// Type of a parameter
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ParamType {
     /// Floating point number
     Float,
@@ -96,7 +98,7 @@ pub enum ParamType {
 }
 
 /// Default value for a parameter
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum ParamDefault {
     Float(f64),
     USize(usize),
@@ -105,14 +107,14 @@ pub enum ParamDefault {
 }
 
 /// Valid range for a parameter
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum ParamRange {
     Float { min: f64, max: f64 },
     USize { min: usize, max: usize },
 }
 
 /// Input type that an algorithm can process
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum InputType {
     /// Plain text / log files
     Text,

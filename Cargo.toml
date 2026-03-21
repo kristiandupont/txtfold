@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "tools/sample-generator"]
+members = ["core", "cli", "tools/sample-generator", "tools/dump-schema"]
 
 [workspace.package]
 version = "0.1.0"
