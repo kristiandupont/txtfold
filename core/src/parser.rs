@@ -1,6 +1,7 @@
 //! Entry parser for detecting and grouping log entries
 
 use crate::entry::Entry;
+use crate::metadata::{InputFormatMetadata, SubOption};
 use regex::Regex;
 use serde_json::Value;
 
@@ -21,6 +22,35 @@ pub struct EntryParser {
 }
 
 impl EntryParser {
+    /// Metadata for text/log input format
+    pub const TEXT_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "text",
+        aliases: &["log", "logs"],
+        description: "Plain text log files",
+        sub_options: &[SubOption {
+            name: "entry-mode",
+            values: &["auto", "single", "multiline"],
+            default: "auto",
+            description: "How to parse entries: single-line, multi-line (stack traces), or auto-detect",
+        }],
+    };
+
+    /// Metadata for JSON array input format
+    pub const JSON_ARRAY_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "json-array",
+        aliases: &["json_array", "jsonarray", "array"],
+        description: "JSON array of objects",
+        sub_options: &[],
+    };
+
+    /// Metadata for JSON map/object input format
+    pub const JSON_MAP_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "json-map",
+        aliases: &["json_map", "jsonmap", "map"],
+        description: "JSON object/map where each value is analyzed",
+        sub_options: &[],
+    };
+
     /// Create a new parser with the specified mode
     pub fn new(mode: EntryMode) -> Self {
         EntryParser { mode }

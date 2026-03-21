@@ -2,6 +2,7 @@
 //!
 //! Groups JSON objects by their structural similarity.
 
+use crate::metadata::{AlgorithmMetadata, InputType, ParamDefault, ParamRange, ParamType, Parameter};
 use crate::schema::{SchemaSignature, extract_sample_values};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -26,6 +27,26 @@ pub struct SchemaClusterer {
 }
 
 impl SchemaClusterer {
+    /// Metadata describing this algorithm
+    pub const METADATA: AlgorithmMetadata = AlgorithmMetadata {
+        name: "schema",
+        aliases: &["json"],
+        description: "Groups JSON objects by structural similarity (matching field names and types)",
+        best_for: "JSON data with varying schemas, API responses, configuration files",
+        parameters: &[Parameter {
+            name: "threshold",
+            type_info: ParamType::Float,
+            default: ParamDefault::Float(0.8),
+            range: Some(ParamRange::Float { min: 0.0, max: 1.0 }),
+            description: "Fraction of fields that must match (1.0 = exact schema match, 0.8 = 80% field overlap)",
+            special_values: &[
+                (1.0, "exact match only"),
+                (0.8, "allow 20% field difference"),
+            ],
+        }],
+        input_types: &[InputType::JsonArray, InputType::JsonMap, InputType::JsonNested],
+    };
+
     /// Create a new schema clusterer with given similarity threshold
     pub fn new(threshold: f64) -> Self {
         SchemaClusterer {

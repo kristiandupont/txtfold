@@ -1,11 +1,22 @@
 //! Formatters for converting analysis output to human-readable formats
 
+use crate::metadata::FormatterMetadata;
 use crate::output::AnalysisOutput;
 
 /// Markdown formatter for analysis output
 pub struct MarkdownFormatter;
 
 impl MarkdownFormatter {
+    /// Metadata describing this formatter
+    pub const METADATA: FormatterMetadata = FormatterMetadata {
+        name: "markdown",
+        aliases: &["md"],
+        description: "Human-readable markdown format with sections, tables, and code blocks",
+        mime_type: "text/markdown",
+        file_extension: "md",
+        supports_streaming: false,
+    };
+
     /// Format analysis output as Markdown
     pub fn format(output: &AnalysisOutput) -> String {
         let mut md = String::new();
@@ -455,5 +466,26 @@ mod tests {
         // Should not crash without input file
         assert!(markdown.contains("# txtfold Analysis Report"));
         assert!(markdown.contains("Total entries"));
+    }
+}
+
+/// JSON formatter for analysis output
+pub struct JsonFormatter;
+
+impl JsonFormatter {
+    /// Metadata describing this formatter
+    pub const METADATA: FormatterMetadata = FormatterMetadata {
+        name: "json",
+        aliases: &[],
+        description: "Machine-readable JSON format with full structured output",
+        mime_type: "application/json",
+        file_extension: "json",
+        supports_streaming: false,
+    };
+
+    /// Format analysis output as JSON
+    pub fn format(output: &AnalysisOutput) -> Result<String, String> {
+        serde_json::to_string_pretty(output)
+            .map_err(|e| format!("Failed to serialize to JSON: {}", e))
     }
 }

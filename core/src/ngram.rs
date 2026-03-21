@@ -4,6 +4,7 @@
 //! scores each entry by rarity, and highlights entries with rare patterns.
 
 use crate::entry::Entry;
+use crate::metadata::{AlgorithmMetadata, InputType, ParamDefault, ParamRange, ParamType, Parameter};
 use std::collections::HashMap;
 
 /// Score statistics for reporting
@@ -32,6 +33,33 @@ pub struct NgramOutlierDetector {
 }
 
 impl NgramOutlierDetector {
+    /// Metadata describing this algorithm
+    pub const METADATA: AlgorithmMetadata = AlgorithmMetadata {
+        name: "ngram",
+        aliases: &["n-gram", "ngrams"],
+        description: "Identifies entries with rare word combinations using n-gram frequency analysis",
+        best_for: "Finding unusual entries in mostly uniform logs",
+        parameters: &[
+            Parameter {
+                name: "ngram_size",
+                type_info: ParamType::USize,
+                default: ParamDefault::USize(2),
+                range: Some(ParamRange::USize { min: 1, max: 10 }),
+                description: "N-gram size (word-level). 2 = bigrams, 3 = trigrams",
+                special_values: &[],
+            },
+            Parameter {
+                name: "outlier_threshold",
+                type_info: ParamType::Float,
+                default: ParamDefault::Float(0.0),
+                range: Some(ParamRange::Float { min: 0.0, max: 1.0 }),
+                description: "Outlier threshold for rarity score. 0.0 = auto-detect bottom ~5%",
+                special_values: &[(0.0, "auto-detect")],
+            },
+        ],
+        input_types: &[InputType::Text],
+    };
+
     /// Create a new word-based n-gram detector with specified n-gram size and threshold
     /// Use threshold of 0.0 or negative to enable auto-detection
     pub fn new(n: usize, threshold: f64) -> Self {

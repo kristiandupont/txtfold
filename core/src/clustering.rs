@@ -1,6 +1,7 @@
 //! Edit distance clustering algorithm for grouping similar entries
 
 use crate::entry::Entry;
+use crate::metadata::{AlgorithmMetadata, InputType, ParamDefault, ParamRange, ParamType, Parameter};
 use serde::{Deserialize, Serialize};
 
 /// A cluster of similar entries
@@ -23,6 +24,23 @@ pub struct EditDistanceClusterer {
 }
 
 impl EditDistanceClusterer {
+    /// Metadata describing this algorithm
+    pub const METADATA: AlgorithmMetadata = AlgorithmMetadata {
+        name: "clustering",
+        aliases: &["cluster", "edit-distance"],
+        description: "Groups similar entries using Levenshtein edit distance",
+        best_for: "Entries that differ only in IDs, numbers, or small textual variations",
+        parameters: &[Parameter {
+            name: "threshold",
+            type_info: ParamType::Float,
+            default: ParamDefault::Float(0.8),
+            range: Some(ParamRange::Float { min: 0.0, max: 1.0 }),
+            description: "Maximum edit distance for grouping (0.0 = identical only, 1.0 = any difference)",
+            special_values: &[],
+        }],
+        input_types: &[InputType::Text],
+    };
+
     /// Create a new clusterer with the given threshold
     pub fn new(threshold: f64) -> Self {
         EditDistanceClusterer {

@@ -1,6 +1,7 @@
 //! Template extraction algorithm for identifying patterns in log entries
 
 use crate::entry::Entry;
+use crate::metadata::{AlgorithmMetadata, InputType};
 use crate::tokenizer::{Token, Tokenizer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -226,6 +227,16 @@ pub struct TemplateExtractor {
 }
 
 impl TemplateExtractor {
+    /// Metadata describing this algorithm
+    pub const METADATA: AlgorithmMetadata = AlgorithmMetadata {
+        name: "template",
+        aliases: &["templates"],
+        description: "Tokenizes entries and extracts patterns with variable slots",
+        best_for: "Structured logs with clear token patterns (timestamps, IDs, numbers)",
+        parameters: &[],
+        input_types: &[InputType::Text],
+    };
+
     /// Create a new template extractor
     pub fn new() -> Self {
         TemplateExtractor { groups: Vec::new() }
