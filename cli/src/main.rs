@@ -1,311 +1,275 @@
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::builder::PossibleValuesParser;
+use clap::{value_parser, Arg, Command};
 use std::fs;
 use std::path::PathBuf;
 use txtfold::clustering::EditDistanceClusterer;
 use txtfold::formatter::MarkdownFormatter;
+use txtfold::metadata::{ParamDefault, ParamType};
 use txtfold::ngram::NgramOutlierDetector;
 use txtfold::output::OutputBuilder;
 use txtfold::parser::{is_json, is_json_map, parse_json_array, parse_json_map, EntryMode, EntryParser};
+use txtfold::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
 use txtfold::schema_clustering::SchemaClusterer;
 use txtfold::template::TemplateExtractor;
 
-/// txtfold - Deterministic text compression for log analysis
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Input file to analyze
-    #[arg(value_name = "FILE")]
-    input: PathBuf,
-
-    /// Output format (json or markdown)
-    #[arg(short, long, default_value = "markdown")]
-    format: OutputFormat,
-
-    /// Output file (default: stdout)
-    #[arg(short, long)]
-    output: Option<PathBuf>,
-
-    /// Input format (text, json-array, json-map, or auto-detect)
-    #[arg(short = 'i', long = "input-format", default_value = "auto")]
-    input_format: InputFormatArg,
-
-    /// Entry parsing mode (single, multiline, or auto) - for text inputs only
-    #[arg(short = 'e', long, default_value = "auto")]
-    entry_mode: EntryModeArg,
-
-    /// Algorithm to use (template, clustering, ngram, schema, or auto)
-    #[arg(short = 'a', long, default_value = "auto")]
-    algorithm: AlgorithmArg,
-
-    /// Similarity threshold (0.0-1.0, for clustering and schema algorithms)
-    /// - clustering: how similar entries must be to group
-    /// - schema: fraction of fields that must match (1.0 = exact, 0.8 = 80% match)
-    #[arg(long, default_value = "0.8")]
-    threshold: f64,
-
-    /// N-gram size (for ngram algorithm, word-level)
-    #[arg(long, default_value = "2")]
-    ngram_size: usize,
-
-    /// Outlier threshold (for ngram algorithm). Use 0 for auto-detection (bottom ~5%)
-    #[arg(long, default_value = "0.0")]
-    outlier_threshold: f64,
+/// Leak a String to produce a `&'static str`.
+///
+/// Used only for the small number of default-value strings we format at startup.
+fn leak_str(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputFormat {
-    Json,
-    Markdown,
-}
+fn build_cli() -> Command {
+    // --- valid values for --algorithm ---
+    let mut algo_values: Vec<&'static str> = vec!["auto"];
+    let mut algo_help = String::from("Algorithm to use [auto");
+    for algo in ALL_ALGORITHMS {
+        algo_values.push(algo.name);
+        algo_values.extend_from_slice(algo.aliases);
+        algo_help.push_str(&format!("|{}", algo.name));
+    }
+    algo_help.push(']');
+    for algo in ALL_ALGORITHMS {
+        algo_help.push_str(&format!("\n  {}: {}", algo.name, algo.best_for));
+    }
 
-impl std::str::FromStr for OutputFormat {
-    type Err = String;
+    // --- valid values for --format ---
+    let mut format_values: Vec<&'static str> = vec![];
+    for fmt in ALL_FORMATTERS {
+        format_values.push(fmt.name);
+        format_values.extend_from_slice(fmt.aliases);
+    }
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "json" => Ok(OutputFormat::Json),
-            "markdown" | "md" => Ok(OutputFormat::Markdown),
-            _ => Err(format!("Invalid format: {}. Use 'json' or 'markdown'", s)),
+    // --- valid values for --input-format ---
+    let mut input_format_values: Vec<&'static str> = vec!["auto"];
+    for fmt in ALL_INPUT_FORMATS {
+        input_format_values.push(fmt.name);
+        input_format_values.extend_from_slice(fmt.aliases);
+    }
+
+    // --- valid values for --entry-mode (from text format sub-options) ---
+    let entry_mode_values: Vec<&'static str> = ALL_INPUT_FORMATS
+        .iter()
+        .find(|f| f.name == "text")
+        .and_then(|f| f.sub_options.first())
+        .map(|o| o.values.to_vec())
+        .unwrap_or_default();
+
+    // --- one Arg per unique algorithm parameter ---
+    let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
+    let mut param_args: Vec<Arg> = vec![];
+    for algo in ALL_ALGORITHMS {
+        for param in algo.parameters {
+            if !seen.insert(param.name) {
+                continue;
+            }
+            let long_flag: &'static str = leak_str(param.name.replace('_', "-"));
+            let default_str: &'static str = match param.default {
+                ParamDefault::Float(v) => leak_str(format!("{v}")),
+                ParamDefault::USize(v) => leak_str(format!("{v}")),
+                ParamDefault::Bool(v) => leak_str(format!("{v}")),
+                ParamDefault::Str(v) => v,
+            };
+            let arg = Arg::new(param.name)
+                .long(long_flag)
+                .default_value(default_str)
+                .help(param.description);
+            let arg = match param.type_info {
+                ParamType::Float => arg.value_parser(value_parser!(f64)),
+                ParamType::USize => arg.value_parser(value_parser!(usize)),
+                ParamType::Bool => arg.value_parser(value_parser!(bool)),
+                ParamType::String | ParamType::Enum(_) => arg.value_parser(value_parser!(String)),
+            };
+            param_args.push(arg);
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InputFormatArg {
-    Auto,
-    Text,
-    JsonArray,
-    JsonMap,
-}
+    let mut cmd = Command::new("txtfold")
+        .about("Deterministic text compression for log analysis")
+        .version(txtfold::version())
+        .arg(
+            Arg::new("input")
+                .value_name("FILE")
+                .required(true)
+                .index(1)
+                .help("Input file to analyze"),
+        )
+        .arg(
+            Arg::new("format")
+                .short('f')
+                .long("format")
+                .default_value("markdown")
+                .value_parser(PossibleValuesParser::new(format_values))
+                .help("Output format"),
+        )
+        .arg(
+            Arg::new("output")
+                .short('o')
+                .long("output")
+                .value_name("FILE")
+                .help("Output file (default: stdout)"),
+        )
+        .arg(
+            Arg::new("input-format")
+                .short('i')
+                .long("input-format")
+                .default_value("auto")
+                .value_parser(PossibleValuesParser::new(input_format_values))
+                .help("Input format (auto-detected if omitted)"),
+        )
+        .arg(
+            Arg::new("entry-mode")
+                .short('e')
+                .long("entry-mode")
+                .default_value("auto")
+                .value_parser(PossibleValuesParser::new(entry_mode_values))
+                .help("How to split text into entries (text inputs only)"),
+        )
+        .arg(
+            Arg::new("algorithm")
+                .short('a')
+                .long("algorithm")
+                .default_value("auto")
+                .value_parser(PossibleValuesParser::new(algo_values))
+                .help(leak_str(algo_help)),
+        );
 
-impl std::str::FromStr for InputFormatArg {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(InputFormatArg::Auto),
-            "text" | "log" | "logs" => Ok(InputFormatArg::Text),
-            "json-array" | "json_array" | "jsonarray" | "array" => Ok(InputFormatArg::JsonArray),
-            "json-map" | "json_map" | "jsonmap" | "map" => Ok(InputFormatArg::JsonMap),
-            _ => Err(format!(
-                "Invalid input format: {}. Use 'auto', 'text', 'json-array', or 'json-map'",
-                s
-            )),
-        }
+    for arg in param_args {
+        cmd = cmd.arg(arg);
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EntryModeArg {
-    Single,
-    MultiLine,
-    Auto,
-}
-
-impl std::str::FromStr for EntryModeArg {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "single" | "single-line" => Ok(EntryModeArg::Single),
-            "multi" | "multiline" | "multi-line" => Ok(EntryModeArg::MultiLine),
-            "auto" => Ok(EntryModeArg::Auto),
-            _ => Err(format!(
-                "Invalid entry mode: {}. Use 'single', 'multiline', or 'auto'",
-                s
-            )),
-        }
-    }
-}
-
-impl From<EntryModeArg> for EntryMode {
-    fn from(arg: EntryModeArg) -> Self {
-        match arg {
-            EntryModeArg::Single => EntryMode::SingleLine,
-            EntryModeArg::MultiLine => EntryMode::MultiLine,
-            EntryModeArg::Auto => EntryMode::Auto,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AlgorithmArg {
-    Auto,
-    Template,
-    Clustering,
-    Ngram,
-    Schema,
-}
-
-impl std::str::FromStr for AlgorithmArg {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "auto" => Ok(AlgorithmArg::Auto),
-            "template" | "templates" => Ok(AlgorithmArg::Template),
-            "cluster" | "clustering" | "edit-distance" => Ok(AlgorithmArg::Clustering),
-            "ngram" | "n-gram" | "ngrams" => Ok(AlgorithmArg::Ngram),
-            "schema" | "json" => Ok(AlgorithmArg::Schema),
-            _ => Err(format!(
-                "Invalid algorithm: {}. Use 'auto', 'template', 'clustering', 'ngram', or 'schema'",
-                s
-            )),
-        }
-    }
+    cmd
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let matches = build_cli().get_matches();
+
+    let input_path = PathBuf::from(matches.get_one::<String>("input").unwrap());
+    let format = matches.get_one::<String>("format").unwrap().as_str();
+    let algorithm = matches.get_one::<String>("algorithm").unwrap().as_str();
+    let input_format_arg = matches.get_one::<String>("input-format").unwrap().as_str();
+    let entry_mode_arg = matches.get_one::<String>("entry-mode").unwrap().as_str();
 
     // Read input file
-    let content = fs::read_to_string(&args.input)
-        .with_context(|| format!("Failed to read input file: {:?}", args.input))?;
+    let content = fs::read_to_string(&input_path)
+        .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
 
-    // Get filename for metadata
-    let filename = args
-        .input
+    let filename = input_path
         .file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.to_string());
 
-    // Detect input format
-    let input_format = match args.input_format {
-        InputFormatArg::Auto => {
-            if is_json(&content) {
-                if is_json_map(&content) {
-                    InputFormatArg::JsonMap
-                } else {
-                    InputFormatArg::JsonArray
-                }
-            } else {
-                InputFormatArg::Text
-            }
+    // Resolve input format
+    let input_format = if input_format_arg == "auto" {
+        if is_json(&content) {
+            if is_json_map(&content) { "json-map" } else { "json-array" }
+        } else {
+            "text"
         }
-        other => other,
+    } else {
+        input_format_arg
     };
 
-    // Auto-select algorithm based on input format
-    let algorithm = match args.algorithm {
-        AlgorithmArg::Auto => {
-            match input_format {
-                InputFormatArg::JsonArray | InputFormatArg::JsonMap => AlgorithmArg::Schema,
-                InputFormatArg::Text => AlgorithmArg::Template,
-                InputFormatArg::Auto => unreachable!("Auto resolved above"),
-            }
+    // Resolve algorithm
+    let algorithm = if algorithm == "auto" {
+        match input_format {
+            "json-array" | "json-map" => "schema",
+            _ => "template",
         }
-        other => other,
+    } else {
+        algorithm
     };
 
-    // Run selected algorithm
-    let output = if algorithm == AlgorithmArg::Schema {
-        // JSON/Schema path
+    // Run
+    let output = if algorithm == "schema" {
         let values = match input_format {
-            InputFormatArg::JsonMap => {
+            "json-map" => {
                 let (values, _keys) = parse_json_map(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {e}"))?;
                 values
             }
-            InputFormatArg::JsonArray => {
-                parse_json_array(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {}", e))?
-            }
-            _ => anyhow::bail!("Schema algorithm requires JSON input"),
+            _ => parse_json_array(&content)
+                .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {e}"))?,
         };
 
         if values.is_empty() {
             anyhow::bail!("No JSON objects found in input");
         }
 
-        let mut clusterer = SchemaClusterer::new(args.threshold);
+        let threshold = *matches.get_one::<f64>("threshold").unwrap();
+        let mut clusterer = SchemaClusterer::new(threshold);
         clusterer.process(&values);
 
-        let mut builder = OutputBuilder::new(vec![]); // Empty entries for JSON
+        let mut builder = OutputBuilder::new(vec![]);
         if let Some(name) = filename {
             builder = builder.with_input_file(name);
         }
         builder.build_from_schemas(&clusterer, &values)
     } else {
-        // Text log path
-        let parser = EntryParser::new(args.entry_mode.into());
+        let entry_mode = match entry_mode_arg {
+            "single" => EntryMode::SingleLine,
+            "multiline" => EntryMode::MultiLine,
+            _ => EntryMode::Auto,
+        };
+        let parser = EntryParser::new(entry_mode);
         let entries = parser.parse(&content);
 
         if entries.is_empty() {
-            eprintln!("Warning: Input file is empty");
+            eprintln!("Warning: input file is empty");
             return Ok(());
         }
 
         match algorithm {
-            AlgorithmArg::Template => {
+            "template" => {
                 let mut extractor = TemplateExtractor::new();
                 extractor.process(&entries);
-
                 let mut builder = OutputBuilder::new(entries);
                 if let Some(name) = filename {
                     builder = builder.with_input_file(name);
                 }
                 builder.build_from_templates(&extractor)
             }
-            AlgorithmArg::Clustering => {
-                let mut clusterer = EditDistanceClusterer::new(args.threshold);
+            "clustering" => {
+                let threshold = *matches.get_one::<f64>("threshold").unwrap();
+                let mut clusterer = EditDistanceClusterer::new(threshold);
                 clusterer.process(&entries);
-
                 let mut builder = OutputBuilder::new(entries);
                 if let Some(name) = filename {
                     builder = builder.with_input_file(name);
                 }
                 builder.build_from_clusters(&clusterer)
             }
-            AlgorithmArg::Ngram => {
-                let mut detector = NgramOutlierDetector::new(args.ngram_size, args.outlier_threshold);
+            "ngram" => {
+                let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
+                let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
+                let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
                 detector.process(&entries);
-
                 let mut builder = OutputBuilder::new(entries);
                 if let Some(name) = filename {
                     builder = builder.with_input_file(name);
                 }
                 builder.build_from_ngrams(&detector)
             }
-            AlgorithmArg::Schema => unreachable!("Schema handled above"),
-            AlgorithmArg::Auto => unreachable!("Auto resolved above"),
+            other => anyhow::bail!("Unknown algorithm: {other}"),
         }
     };
 
-    // Format output
-    let formatted = match args.format {
-        OutputFormat::Json => serde_json::to_string_pretty(&output)
-            .context("Failed to serialize output to JSON")?,
-        OutputFormat::Markdown => MarkdownFormatter::format(&output),
+    // Format
+    let formatted = match format {
+        "json" => serde_json::to_string_pretty(&output).context("Failed to serialize JSON")?,
+        _ => MarkdownFormatter::format(&output),
     };
 
-    // Write output
-    if let Some(output_path) = args.output {
-        fs::write(&output_path, formatted)
-            .with_context(|| format!("Failed to write output to {:?}", output_path))?;
-        eprintln!("Output written to {:?}", output_path);
+    // Write
+    if let Some(output_path) = matches.get_one::<String>("output") {
+        let path = PathBuf::from(output_path);
+        fs::write(&path, formatted)
+            .with_context(|| format!("Failed to write output to {path:?}"))?;
+        eprintln!("Output written to {path:?}");
     } else {
-        println!("{}", formatted);
+        println!("{formatted}");
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_output_format_parsing() {
-        assert_eq!("json".parse::<OutputFormat>().unwrap(), OutputFormat::Json);
-        assert_eq!(
-            "markdown".parse::<OutputFormat>().unwrap(),
-            OutputFormat::Markdown
-        );
-        assert_eq!(
-            "md".parse::<OutputFormat>().unwrap(),
-            OutputFormat::Markdown
-        );
-        assert!("invalid".parse::<OutputFormat>().is_err());
-    }
 }
