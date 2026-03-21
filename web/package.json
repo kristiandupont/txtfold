@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "lint": "eslint",
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "build:wasm": "cd ../core && wasm-pack build --target web --out-dir ../web/src/wasm --features wasm",
+    "dev": "bun run build:wasm && vite",
+    "build": "bun run build:wasm && tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {

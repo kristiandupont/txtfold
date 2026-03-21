@@ -29,6 +29,106 @@ pub fn wasm_version() -> String {
     version().to_string()
 }
 
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn process_text(
+    input: &str,
+    algorithm: &str,
+    threshold: f64,
+    ngram_size: usize,
+    outlier_threshold: f64,
+    format: &str,
+) -> Result<String, String> {
+    use crate::clustering::EditDistanceClusterer;
+    use crate::ngram::NgramOutlierDetector;
+    use crate::output::OutputBuilder;
+    use crate::parser::{is_json, is_json_map, parse_json_array, parse_json_map, EntryParser, EntryMode};
+    use crate::schema_clustering::SchemaClusterer;
+    use crate::template::TemplateExtractor;
+
+    // Detect input format
+    let is_json_input = is_json(input);
+    let is_map = is_json_input && is_json_map(input);
+
+    // Auto-select algorithm if needed
+    let algo = if algorithm == "auto" {
+        if is_json_input {
+            "schema"
+        } else {
+            "template"
+        }
+    } else {
+        algorithm
+    };
+
+    // Run selected algorithm
+    let output = if algo == "schema" {
+        // JSON/Schema path
+        let values = if is_map {
+            let (values, _keys) = parse_json_map(input)
+                .map_err(|e| format!("Failed to parse JSON map: {}", e))?;
+            values
+        } else {
+            parse_json_array(input)
+                .map_err(|e| format!("Failed to parse JSON array: {}", e))?
+        };
+
+        if values.is_empty() {
+            return Err("No JSON objects found in input".to_string());
+        }
+
+        let mut clusterer = SchemaClusterer::new(threshold);
+        clusterer.process(&values);
+
+        let builder = OutputBuilder::new(vec![]);
+        builder.build_from_schemas(&clusterer, &values)
+    } else {
+        // Text log path
+        let parser = EntryParser::new(EntryMode::Auto);
+        let entries = parser.parse(input);
+
+        if entries.is_empty() {
+            return Err("Input is empty".to_string());
+        }
+
+        match algo {
+            "template" => {
+                let mut extractor = TemplateExtractor::new();
+                extractor.process(&entries);
+
+                let builder = OutputBuilder::new(entries);
+                builder.build_from_templates(&extractor)
+            }
+            "clustering" => {
+                let mut clusterer = EditDistanceClusterer::new(threshold);
+                clusterer.process(&entries);
+
+                let builder = OutputBuilder::new(entries);
+                builder.build_from_clusters(&clusterer)
+            }
+            "ngram" => {
+                let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
+                detector.process(&entries);
+
+                let builder = OutputBuilder::new(entries);
+                builder.build_from_ngrams(&detector)
+            }
+            _ => return Err(format!("Unknown algorithm: {}", algo)),
+        }
+    };
+
+    // Format output based on requested format
+    match format {
+        "json" => serde_json::to_string_pretty(&output)
+            .map_err(|e| format!("Failed to serialize output: {}", e)),
+        "markdown" | "md" => {
+            use crate::formatter::MarkdownFormatter;
+            Ok(MarkdownFormatter::format(&output))
+        }
+        _ => Err(format!("Unknown format: {}. Use 'json' or 'markdown'", format)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
