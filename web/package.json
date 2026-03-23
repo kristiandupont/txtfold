@@ -21,6 +21,7 @@
   "dependencies": {
     "@b9g/crank": "^0.7.8",
     "@tailwindcss/vite": "^4.2.2",
+    "marked": "^17.0.5",
     "tailwindcss": "^4.2.2"
   }
 }

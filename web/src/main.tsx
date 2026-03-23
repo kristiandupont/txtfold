@@ -5,6 +5,7 @@ import { renderer } from "@b9g/crank/dom";
 import type { Context } from "@b9g/crank";
 import { loadCore } from "./loadCore.js";
 import schema from "../../schema.json";
+import { Markdown } from "./markdown/Markdown.js";
 
 // ── Types derived from schema ─────────────────────────────────────────────────
 
@@ -18,18 +19,26 @@ function paramDefault(p: ParameterMeta): number {
   return d.Float ?? d.USize ?? 0;
 }
 
-function paramRange(p: ParameterMeta): { min: number; max: number; step: number } {
+function paramRange(p: ParameterMeta): {
+  min: number;
+  max: number;
+  step: number;
+} {
   type Bound = { min: number; max: number };
   const r = p.range as { Float?: Bound; USize?: Bound };
-  if (r.Float !== undefined) return { min: r.Float.min, max: r.Float.max, step: 0.05 };
-  if (r.USize !== undefined) return { min: r.USize.min, max: r.USize.max, step: 1 };
+  if (r.Float !== undefined)
+    return { min: r.Float.min, max: r.Float.max, step: 0.05 };
+  if (r.USize !== undefined)
+    return { min: r.USize.min, max: r.USize.max, step: 1 };
   return { min: 0, max: 1, step: 0.1 };
 }
 
 function defaultParams(algoName: string): Record<string, number> {
   const algo = schema.algorithms.find((a) => a.name === algoName);
   if (!algo) return {};
-  return Object.fromEntries(algo.parameters.map((p) => [p.name, paramDefault(p)]));
+  return Object.fromEntries(
+    algo.parameters.map((p) => [p.name, paramDefault(p)]),
+  );
 }
 
 function compatibleAlgorithms(inputFormat: string): typeof schema.algorithms {
@@ -41,7 +50,9 @@ function compatibleAlgorithms(inputFormat: string): typeof schema.algorithms {
   };
   const type = typeMap[inputFormat];
   if (type === undefined) return schema.algorithms;
-  return schema.algorithms.filter((a) => (a.input_types as string[]).includes(type));
+  return schema.algorithms.filter((a) =>
+    (a.input_types as string[]).includes(type),
+  );
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -91,7 +102,9 @@ function ParamControl({
           {param.name.replace(/_/g, " ")}
         </label>
         <span class="text-xs font-mono text-gray-500">
-          {specialLabel !== undefined ? `${display} — ${specialLabel}` : display}
+          {specialLabel !== undefined
+            ? `${display} — ${specialLabel}`
+            : display}
         </span>
       </div>
       <input
@@ -137,7 +150,9 @@ function* OptionsPanel(
 
   for ({ state, setState } of this) {
     const algos = compatibleAlgorithms(state.inputFormat);
-    const selectedAlgo = schema.algorithms.find((a) => a.name === state.algorithm);
+    const selectedAlgo = schema.algorithms.find(
+      (a) => a.name === state.algorithm,
+    );
     const inputFormatMeta = schema.input_formats.find(
       (f) => f.name === state.inputFormat,
     );
@@ -287,11 +302,35 @@ function* InputPanel(
 }
 
 function* OutputPanel(this: Context, { state }: { state: State }) {
+  let rendered = true;
+
+  const toggleRendered = () =>
+    this.refresh(() => {
+      rendered = !rendered;
+    });
+
   for ({ state } of this) {
+    const isMarkdown = state.outputFormat === "markdown";
     yield (
       <div class="flex flex-col h-full overflow-y-auto">
-        <div class="p-4 border-b border-gray-200">
+        <div class="p-4 border-b border-gray-200 flex items-center justify-between">
           <h2 class="font-bold text-lg">Output</h2>
+          {isMarkdown && state.output && (
+            <div class="flex text-xs rounded-full border border-gray-300 overflow-hidden">
+              <button
+                class={`px-3 py-1 ${rendered ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+                onclick={rendered ? undefined : toggleRendered}
+              >
+                Rendered
+              </button>
+              <button
+                class={`px-3 py-1 ${!rendered ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+                onclick={!rendered ? undefined : toggleRendered}
+              >
+                Raw
+              </button>
+            </div>
+          )}
         </div>
         <div class="flex-1 p-4 overflow-auto">
           {state.error ? (
@@ -299,7 +338,13 @@ function* OutputPanel(this: Context, { state }: { state: State }) {
               <strong>Error:</strong> {state.error}
             </div>
           ) : state.output ? (
-            <pre class="font-mono text-sm whitespace-pre-wrap">{state.output}</pre>
+            isMarkdown && rendered ? (
+              <Markdown content={state.output} />
+            ) : (
+              <pre class="font-mono text-sm whitespace-pre-wrap">
+                {state.output}
+              </pre>
+            )
           ) : (
             <div class="text-gray-400 italic">Output will appear here…</div>
           )}
@@ -361,7 +406,11 @@ function* App(this: Context) {
 
         <div class="flex-1 grid grid-cols-[280px_1fr_1fr] overflow-hidden">
           <OptionsPanel state={state} setState={setState} />
-          <InputPanel state={state} setState={setState} onProcess={processText} />
+          <InputPanel
+            state={state}
+            setState={setState}
+            onProcess={processText}
+          />
           <OutputPanel state={state} />
         </div>
       </div>
