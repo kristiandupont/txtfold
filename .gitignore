@@ -19,6 +19,10 @@ wasm-pack.log
 .DS_Store
 Thumbs.db
 
+# Generated schemas (produced by dump-schema at build time)
+schema.json
+web/schema.json
+
 # Testing
 *.log
 test-output/

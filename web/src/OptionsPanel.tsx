@@ -1,6 +1,6 @@
 import "./style.css";
 import type { Context } from "@b9g/crank";
-import schema from "../../schema.json";
+import schema from "../schema.json";
 import { SectionHeader } from "./SectionHeader.js";
 import type { State } from "./State.js";
 

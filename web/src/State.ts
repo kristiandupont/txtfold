@@ -1,4 +1,4 @@
-import schema from "../../schema.json";
+import schema from "../schema.json";
 
 export interface State {
   inputFormat: string;
