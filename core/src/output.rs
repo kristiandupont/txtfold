@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 /// Complete analysis output
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AnalysisOutput {
     /// Metadata about the analysis
     pub metadata: AnalysisMetadata,
@@ -22,6 +23,7 @@ pub struct AnalysisOutput {
 
 /// Algorithm-specific output formats
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AlgorithmResults {
     /// Pattern grouping with optional outliers (template extraction, clustering)
@@ -43,6 +45,7 @@ pub enum AlgorithmResults {
 
 /// Baseline information for outlier-focused algorithms
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BaselineOutput {
     /// Description of the baseline/common patterns
     pub description: String,
@@ -59,6 +62,7 @@ pub struct BaselineOutput {
 
 /// Information about threshold used for outlier detection
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ThresholdInfo {
     /// The threshold value used
     pub value: f64,
@@ -71,6 +75,7 @@ pub struct ThresholdInfo {
 
 /// Score statistics for n-gram analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ScoreStatsOutput {
     pub min: f64,
     pub max: f64,
@@ -80,6 +85,7 @@ pub struct ScoreStatsOutput {
 
 /// Metadata about the analysis run
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AnalysisMetadata {
     /// Input file name (optional)
     pub input_file: Option<String>,
@@ -93,6 +99,7 @@ pub struct AnalysisMetadata {
 
 /// Summary statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AnalysisSummary {
     /// Number of unique patterns found
     pub unique_patterns: usize,
@@ -104,6 +111,7 @@ pub struct AnalysisSummary {
 
 /// A single pattern group in the output
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GroupOutput {
     /// Group identifier
     pub id: String,
@@ -123,6 +131,7 @@ pub struct GroupOutput {
 
 /// A sample entry from a group
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SampleEntry {
     /// The actual content
     pub content: String,
@@ -134,6 +143,7 @@ pub struct SampleEntry {
 
 /// An outlier entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct OutlierOutput {
     /// Outlier identifier
     pub id: String,
@@ -149,6 +159,7 @@ pub struct OutlierOutput {
 
 /// A schema group (for JSON/structured data)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SchemaGroupOutput {
     /// Group identifier
     pub id: String,

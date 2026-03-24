@@ -1,0 +1,494 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AnalysisOutput",
+  "description": "Complete analysis output",
+  "type": "object",
+  "required": [
+    "metadata",
+    "results",
+    "summary"
+  ],
+  "properties": {
+    "metadata": {
+      "description": "Metadata about the analysis",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AnalysisMetadata"
+        }
+      ]
+    },
+    "results": {
+      "description": "Algorithm-specific results",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AlgorithmResults"
+        }
+      ]
+    },
+    "summary": {
+      "description": "Summary statistics",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AnalysisSummary"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "AlgorithmResults": {
+      "description": "Algorithm-specific output formats",
+      "oneOf": [
+        {
+          "description": "Pattern grouping with optional outliers (template extraction, clustering)",
+          "type": "object",
+          "required": [
+            "groups",
+            "outliers",
+            "type"
+          ],
+          "properties": {
+            "groups": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/GroupOutput"
+              }
+            },
+            "outliers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "grouped"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Outlier-focused with baseline information (n-gram analysis)",
+          "type": "object",
+          "required": [
+            "baseline",
+            "outliers",
+            "type"
+          ],
+          "properties": {
+            "baseline": {
+              "$ref": "#/definitions/BaselineOutput"
+            },
+            "outliers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "outlier_focused"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Schema-based grouping (JSON/structured data)",
+          "type": "object",
+          "required": [
+            "outliers",
+            "schemas",
+            "type"
+          ],
+          "properties": {
+            "outliers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              }
+            },
+            "schemas": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SchemaGroupOutput"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "schema_grouped"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AnalysisMetadata": {
+      "description": "Metadata about the analysis run",
+      "type": "object",
+      "required": [
+        "algorithm",
+        "compression_ratio",
+        "total_entries"
+      ],
+      "properties": {
+        "algorithm": {
+          "description": "Algorithm used",
+          "type": "string"
+        },
+        "compression_ratio": {
+          "description": "Compression ratio (output size / input size)",
+          "type": "number",
+          "format": "double"
+        },
+        "input_file": {
+          "description": "Input file name (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total_entries": {
+          "description": "Total number of entries processed",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "AnalysisSummary": {
+      "description": "Summary statistics",
+      "type": "object",
+      "required": [
+        "largest_cluster",
+        "outliers",
+        "unique_patterns"
+      ],
+      "properties": {
+        "largest_cluster": {
+          "description": "Size of largest cluster",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "outliers": {
+          "description": "Number of outliers detected",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "unique_patterns": {
+          "description": "Number of unique patterns found",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "BaselineOutput": {
+      "description": "Baseline information for outlier-focused algorithms",
+      "type": "object",
+      "required": [
+        "common_features",
+        "description",
+        "normal_count",
+        "normal_percentage"
+      ],
+      "properties": {
+        "common_features": {
+          "description": "Top common features (e.g., n-grams, tokens)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "description": "Description of the baseline/common patterns",
+          "type": "string"
+        },
+        "normal_count": {
+          "description": "Number of entries considered \"normal\"",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "normal_percentage": {
+          "description": "Percentage of entries considered \"normal\"",
+          "type": "number",
+          "format": "double"
+        },
+        "threshold": {
+          "description": "Threshold used for outlier detection (if applicable)",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ThresholdInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GroupOutput": {
+      "description": "A single pattern group in the output",
+      "type": "object",
+      "required": [
+        "count",
+        "id",
+        "line_ranges",
+        "name",
+        "pattern",
+        "percentage",
+        "samples"
+      ],
+      "properties": {
+        "count": {
+          "description": "Number of entries matching this pattern",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "id": {
+          "description": "Group identifier",
+          "type": "string"
+        },
+        "line_ranges": {
+          "description": "Line number ranges where this pattern appears",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": [
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0.0
+              },
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0.0
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2
+          }
+        },
+        "name": {
+          "description": "Derived human-readable name from pattern",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Human-readable pattern",
+          "type": "string"
+        },
+        "percentage": {
+          "description": "Percentage of total entries",
+          "type": "number",
+          "format": "double"
+        },
+        "samples": {
+          "description": "Sample entries from this group",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SampleEntry"
+          }
+        }
+      }
+    },
+    "OutlierOutput": {
+      "description": "An outlier entry",
+      "type": "object",
+      "required": [
+        "content",
+        "id",
+        "line_number",
+        "reason",
+        "score"
+      ],
+      "properties": {
+        "content": {
+          "description": "The content",
+          "type": "string"
+        },
+        "id": {
+          "description": "Outlier identifier",
+          "type": "string"
+        },
+        "line_number": {
+          "description": "Line number",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "reason": {
+          "description": "Reason for being flagged as outlier",
+          "type": "string"
+        },
+        "score": {
+          "description": "Outlier score (lower = more unusual)",
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "SampleEntry": {
+      "description": "A sample entry from a group",
+      "type": "object",
+      "required": [
+        "content",
+        "line_numbers",
+        "variable_values"
+      ],
+      "properties": {
+        "content": {
+          "description": "The actual content",
+          "type": "string"
+        },
+        "line_numbers": {
+          "description": "Line numbers of sample instances",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        },
+        "variable_values": {
+          "description": "Variable values found in samples",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "SchemaGroupOutput": {
+      "description": "A schema group (for JSON/structured data)",
+      "type": "object",
+      "required": [
+        "count",
+        "entry_indices",
+        "fields",
+        "id",
+        "name",
+        "percentage",
+        "sample_values",
+        "schema_description"
+      ],
+      "properties": {
+        "count": {
+          "description": "Number of entries with this schema",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "entry_indices": {
+          "description": "Entry indices (which entries have this schema)",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0.0
+          }
+        },
+        "fields": {
+          "description": "Fields present in this schema",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Group identifier",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable name",
+          "type": "string"
+        },
+        "percentage": {
+          "description": "Percentage of total entries",
+          "type": "number",
+          "format": "double"
+        },
+        "sample_values": {
+          "description": "Sample field values",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "schema_description": {
+          "description": "Schema description (field names and types)",
+          "type": "string"
+        }
+      }
+    },
+    "ScoreStatsOutput": {
+      "description": "Score statistics for n-gram analysis",
+      "type": "object",
+      "required": [
+        "max",
+        "mean",
+        "median",
+        "min"
+      ],
+      "properties": {
+        "max": {
+          "type": "number",
+          "format": "double"
+        },
+        "mean": {
+          "type": "number",
+          "format": "double"
+        },
+        "median": {
+          "type": "number",
+          "format": "double"
+        },
+        "min": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "ThresholdInfo": {
+      "description": "Information about threshold used for outlier detection",
+      "type": "object",
+      "required": [
+        "auto_detected",
+        "value"
+      ],
+      "properties": {
+        "auto_detected": {
+          "description": "Whether this was auto-detected",
+          "type": "boolean"
+        },
+        "score_stats": {
+          "description": "Score statistics",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScoreStatsOutput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "description": "The threshold value used",
+          "type": "number",
+          "format": "double"
+        }
+      }
+    }
+  }
+}

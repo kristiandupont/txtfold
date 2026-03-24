@@ -24,12 +24,16 @@ lazy_static = "1.4"
 # WASM support
 wasm-bindgen = { version = "0.2", optional = true }
 
+# Output JSON Schema derivation (build-time only, not included in WASM)
+schemars = { version = "0.8", optional = true }
+
 [dev-dependencies]
 # For testing
 
 [features]
 default = []
 wasm = ["wasm-bindgen"]
+schemars = ["dep:schemars"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4"]
