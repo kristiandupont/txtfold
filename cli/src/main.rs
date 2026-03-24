@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{value_parser, Arg, Command};
 use std::fs;
+use std::io::{self, Read};
 use std::path::PathBuf;
 use txtfold::clustering::EditDistanceClusterer;
 use txtfold::formatter::MarkdownFormatter;
@@ -91,9 +92,9 @@ fn build_cli() -> Command {
         .arg(
             Arg::new("input")
                 .value_name("FILE")
-                .required(true)
+                .required(false)
                 .index(1)
-                .help("Input file to analyze"),
+                .help("Input file to analyze (reads from stdin if omitted)"),
         )
         .arg(
             Arg::new("format")
@@ -145,20 +146,28 @@ fn build_cli() -> Command {
 fn main() -> Result<()> {
     let matches = build_cli().get_matches();
 
-    let input_path = PathBuf::from(matches.get_one::<String>("input").unwrap());
     let format = matches.get_one::<String>("format").unwrap().as_str();
     let algorithm = matches.get_one::<String>("algorithm").unwrap().as_str();
     let input_format_arg = matches.get_one::<String>("input-format").unwrap().as_str();
     let entry_mode_arg = matches.get_one::<String>("entry-mode").unwrap().as_str();
 
-    // Read input file
-    let content = fs::read_to_string(&input_path)
-        .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
-
-    let filename = input_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|s| s.to_string());
+    // Read input (file or stdin)
+    let (content, filename) = if let Some(path_str) = matches.get_one::<String>("input") {
+        let input_path = PathBuf::from(path_str);
+        let content = fs::read_to_string(&input_path)
+            .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
+        let filename = input_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
+        (content, filename)
+    } else {
+        let mut content = String::new();
+        io::stdin()
+            .read_to_string(&mut content)
+            .context("Failed to read from stdin")?;
+        (content, None)
+    };
 
     // Resolve input format
     let input_format = if input_format_arg == "auto" {

@@ -12,9 +12,9 @@ struct Args {
     #[arg(short, long, default_value = "500")]
     lines: usize,
 
-    /// Output file path
+    /// Output file path (default: stdout)
     #[arg(short, long)]
-    output: PathBuf,
+    output: Option<PathBuf>,
 
     /// Preset log pattern type
     #[arg(short, long, default_value = "web")]
@@ -479,14 +479,24 @@ fn main() -> io::Result<()> {
         Preset::Multiline => generator.generate_multiline(args.lines),
     };
 
-    let mut file = File::create(&args.output)?;
-    for log in logs {
-        writeln!(file, "{}", log)?;
+    let stdout = io::stdout();
+    let mut writer: Box<dyn Write> = match &args.output {
+        Some(path) => Box::new(File::create(path)?),
+        None => Box::new(stdout.lock()),
+    };
+    for log in &logs {
+        writeln!(writer, "{}", log)?;
     }
+    drop(writer);
 
-    println!(
-        "Generated {} lines of {:?} logs to {:?}",
-        args.lines, args.preset, args.output
+    eprintln!(
+        "Generated {} lines of {:?} logs{}",
+        args.lines,
+        args.preset,
+        args.output
+            .as_ref()
+            .map(|p| format!(" to {p:?}"))
+            .unwrap_or_default()
     );
 
     Ok(())
