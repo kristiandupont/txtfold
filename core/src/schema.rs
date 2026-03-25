@@ -13,6 +13,10 @@ pub struct SchemaSignature {
     pub fields: Vec<String>,
     /// Field name -> type mapping
     pub field_types: BTreeMap<String, JsonType>,
+    /// Nested schemas for Object/Array fields (populated when depth > 0).
+    /// For an Object field, stores its schema. For an Array field, stores the
+    /// representative element schema (first element's schema, if objects).
+    pub nested: BTreeMap<String, SchemaSignature>,
 }
 
 /// Simplified JSON type representation
@@ -27,8 +31,14 @@ pub enum JsonType {
 }
 
 impl SchemaSignature {
-    /// Extract schema signature from a JSON value
+    /// Extract schema signature from a JSON value (flat, depth=0).
     pub fn from_value(value: &Value) -> Option<Self> {
+        Self::from_value_with_depth(value, 0)
+    }
+
+    /// Extract schema signature, recursing into nested objects up to `depth` levels.
+    /// depth=0 gives the same flat result as `from_value`.
+    pub fn from_value_with_depth(value: &Value, depth: usize) -> Option<Self> {
         match value {
             Value::Object(map) => {
                 let mut fields: Vec<String> = map.keys().cloned().collect();
@@ -39,16 +49,36 @@ impl SchemaSignature {
                     .map(|(k, v)| (k.clone(), JsonType::from_value(v)))
                     .collect();
 
-                Some(SchemaSignature {
-                    fields,
-                    field_types,
-                })
+                let mut nested = BTreeMap::new();
+                if depth > 0 {
+                    for (k, v) in map.iter() {
+                        match v {
+                            Value::Object(_) => {
+                                if let Some(sub) = Self::from_value_with_depth(v, depth - 1) {
+                                    nested.insert(k.clone(), sub);
+                                }
+                            }
+                            Value::Array(arr) if !arr.is_empty() => {
+                                if let Some(elem) = detect_array_element_schema(arr, depth - 1) {
+                                    nested.insert(k.clone(), elem);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                Some(SchemaSignature { fields, field_types, nested })
             }
-            _ => None, // Only extract schema from objects
+            _ => None,
         }
     }
 
-    /// Calculate similarity to another schema (0.0 = completely different, 1.0 = identical)
+    /// Calculate similarity to another schema (0.0 = completely different, 1.0 = identical).
+    ///
+    /// When both schemas have nested information for an Object/Array field, the
+    /// field's contribution is weighted by the recursive similarity of those nested
+    /// schemas rather than being a hard 0-or-1 match.
     pub fn similarity(&self, other: &SchemaSignature) -> f64 {
         let all_fields: std::collections::HashSet<_> =
             self.fields.iter().chain(other.fields.iter()).collect();
@@ -57,21 +87,34 @@ impl SchemaSignature {
             return 1.0;
         }
 
-        let mut matching = 0;
+        let mut score = 0.0f64;
         let total = all_fields.len();
 
-        for field in all_fields {
-            let self_type = self.field_types.get(field);
-            let other_type = other.field_types.get(field);
+        for field in &all_fields {
+            let self_type = self.field_types.get(*field);
+            let other_type = other.field_types.get(*field);
 
-            match (self_type, other_type) {
-                (Some(t1), Some(t2)) if t1 == t2 => matching += 1,
-                (Some(_), Some(_)) => {}, // Field exists but different type
-                _ => {},                   // Field missing in one schema
+            if let (Some(t1), Some(t2)) = (self_type, other_type) {
+                if t1 == t2 {
+                    // For Object/Array fields, blend in recursive similarity when available.
+                    let field_score = match t1 {
+                        JsonType::Object | JsonType::Array => {
+                            match (self.nested.get(*field), other.nested.get(*field)) {
+                                (Some(s1), Some(s2)) => s1.similarity(s2),
+                                // Only one side has nested info: fall back to full credit.
+                                _ => 1.0,
+                            }
+                        }
+                        _ => 1.0,
+                    };
+                    score += field_score;
+                }
+                // type mismatch: 0 contribution
             }
+            // field missing in one schema: 0 contribution
         }
 
-        matching as f64 / total as f64
+        score / total as f64
     }
 
     /// Get fields that are in this schema but not in another
@@ -88,16 +131,30 @@ impl SchemaSignature {
         other.extra_fields(self)
     }
 
-    /// Get a human-readable description of the schema
+    /// Get a human-readable description of the schema.
+    /// Nested schemas are shown inline: `{ user: { id: number, name: string } }`.
     pub fn description(&self) -> String {
         let field_list: Vec<String> = self
             .field_types
             .iter()
-            .map(|(name, typ)| format!("{}: {}", name, typ.as_str()))
+            .map(|(name, typ)| {
+                if let Some(nested) = self.nested.get(name) {
+                    format!("{}: {}", name, nested.description())
+                } else {
+                    format!("{}: {}", name, typ.as_str())
+                }
+            })
             .collect();
 
         format!("{{ {} }}", field_list.join(", "))
     }
+}
+
+/// Pick a representative element schema for a JSON array.
+/// Returns the schema of the first Object element (sufficient for homogeneous arrays).
+fn detect_array_element_schema(arr: &[Value], depth: usize) -> Option<SchemaSignature> {
+    arr.iter()
+        .find_map(|v| SchemaSignature::from_value_with_depth(v, depth))
 }
 
 impl JsonType {
@@ -269,6 +326,90 @@ mod tests {
         assert!(desc.contains("name: string"));
         assert!(desc.contains("age: number"));
         assert!(desc.contains("active: bool"));
+    }
+
+    #[test]
+    fn test_nested_schema_extraction() {
+        let obj = json!({
+            "type": "user_event",
+            "data": { "id": 1, "name": "alice", "role": "member" },
+            "meta": { "ts": "2024-01-01", "region": "us-east" }
+        });
+
+        let flat = SchemaSignature::from_value(&obj).unwrap();
+        assert!(flat.nested.is_empty(), "depth=0 should produce no nested schemas");
+        assert_eq!(flat.field_types.get("data"), Some(&JsonType::Object));
+
+        let deep = SchemaSignature::from_value_with_depth(&obj, 1).unwrap();
+        assert!(deep.nested.contains_key("data"), "depth=1 should extract nested schema for 'data'");
+        assert!(deep.nested.contains_key("meta"), "depth=1 should extract nested schema for 'meta'");
+
+        let data_schema = deep.nested.get("data").unwrap();
+        assert_eq!(data_schema.field_types.get("id"), Some(&JsonType::Number));
+        assert_eq!(data_schema.field_types.get("name"), Some(&JsonType::String));
+        assert_eq!(data_schema.field_types.get("role"), Some(&JsonType::String));
+    }
+
+    #[test]
+    fn test_nested_similarity_splits_envelope_pattern() {
+        // All records share {type, data, meta} at the top level.
+        // At depth=0 they all look identical (similarity=1.0).
+        // At depth=1 the different data sub-schemas reduce similarity below 0.8.
+        let user_event = json!({
+            "type": "user_event",
+            "data": { "id": 1, "name": "alice", "role": "member" },
+            "meta": { "ts": "2024-01-01", "region": "us-east" }
+        });
+        let order_event = json!({
+            "type": "order_event",
+            "data": { "id": 1001, "amount": 49.99, "status": "complete" },
+            "meta": { "ts": "2024-01-01", "region": "us-east" }
+        });
+
+        // Flat: identical top-level shape → similarity 1.0
+        let u_flat = SchemaSignature::from_value(&user_event).unwrap();
+        let o_flat = SchemaSignature::from_value(&order_event).unwrap();
+        assert_eq!(u_flat.similarity(&o_flat), 1.0,
+            "flat schemas should be identical for envelope pattern");
+
+        // Depth=1: data sub-schema differs (name+role vs amount+status) →
+        // data field contributes <1, dragging overall similarity below 0.8
+        let u_deep = SchemaSignature::from_value_with_depth(&user_event, 1).unwrap();
+        let o_deep = SchemaSignature::from_value_with_depth(&order_event, 1).unwrap();
+        let sim = u_deep.similarity(&o_deep);
+        assert!(
+            sim < 0.8,
+            "depth-1 similarity for user vs order event should be <0.8, got {sim:.3}"
+        );
+    }
+
+    #[test]
+    fn test_nested_description() {
+        let obj = json!({
+            "user": { "id": 1, "name": "alice" }
+        });
+        let deep = SchemaSignature::from_value_with_depth(&obj, 1).unwrap();
+        let desc = deep.description();
+        // Should show inline nested form, not "user: object"
+        assert!(desc.contains("user: {"), "description should show nested schema inline, got: {desc}");
+        assert!(desc.contains("id: number"), "nested fields should be visible");
+        assert!(desc.contains("name: string"), "nested fields should be visible");
+    }
+
+    #[test]
+    fn test_array_element_schema_detected() {
+        let obj = json!({
+            "items": [
+                { "id": 1, "price": 9.99 },
+                { "id": 2, "price": 19.99 }
+            ]
+        });
+        let deep = SchemaSignature::from_value_with_depth(&obj, 1).unwrap();
+        assert!(deep.nested.contains_key("items"),
+            "depth=1 should detect element schema for array field 'items'");
+        let elem = deep.nested.get("items").unwrap();
+        assert_eq!(elem.field_types.get("id"), Some(&JsonType::Number));
+        assert_eq!(elem.field_types.get("price"), Some(&JsonType::Number));
     }
 
     #[test]

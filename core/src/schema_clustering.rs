@@ -22,6 +22,8 @@ pub struct SchemaCluster {
 pub struct SchemaClusterer {
     /// Similarity threshold (0.0-1.0) for grouping schemas
     threshold: f64,
+    /// How many levels deep to recurse into nested objects (0 = flat)
+    depth: usize,
     /// Clusters found
     clusters: Vec<SchemaCluster>,
 }
@@ -33,24 +35,35 @@ impl SchemaClusterer {
         aliases: &["json"],
         description: "Groups JSON objects by structural similarity (matching field names and types)",
         best_for: "JSON data with varying schemas, API responses, configuration files",
-        parameters: &[Parameter {
-            name: "threshold",
-            type_info: ParamType::Float,
-            default: ParamDefault::Float(0.8),
-            range: Some(ParamRange::Float { min: 0.0, max: 1.0 }),
-            description: "Fraction of fields that must match (1.0 = exact schema match, 0.8 = 80% field overlap)",
-            special_values: &[
-                (1.0, "exact match only"),
-                (0.8, "allow 20% field difference"),
-            ],
-        }],
+        parameters: &[
+            Parameter {
+                name: "threshold",
+                type_info: ParamType::Float,
+                default: ParamDefault::Float(0.8),
+                range: Some(ParamRange::Float { min: 0.0, max: 1.0 }),
+                description: "Fraction of fields that must match (1.0 = exact schema match, 0.8 = 80% field overlap)",
+                special_values: &[
+                    (1.0, "exact match only"),
+                    (0.8, "allow 20% field difference"),
+                ],
+            },
+            Parameter {
+                name: "depth",
+                type_info: ParamType::USize,
+                default: ParamDefault::USize(1),
+                range: Some(ParamRange::USize { min: 0, max: 10 }),
+                description: "Levels of nested objects to include in schema comparison (0 = flat, 1 = one level deep)",
+                special_values: &[],
+            },
+        ],
         input_types: &[InputType::JsonArray, InputType::JsonMap, InputType::JsonNested],
     };
 
-    /// Create a new schema clusterer with given similarity threshold
-    pub fn new(threshold: f64) -> Self {
+    /// Create a new schema clusterer with given similarity threshold and schema depth.
+    pub fn new(threshold: f64, depth: usize) -> Self {
         SchemaClusterer {
             threshold,
+            depth,
             clusters: Vec::new(),
         }
     }
@@ -61,7 +74,7 @@ impl SchemaClusterer {
 
         // Extract schemas from all values
         for (idx, value) in values.iter().enumerate() {
-            if let Some(schema) = SchemaSignature::from_value(value) {
+            if let Some(schema) = SchemaSignature::from_value_with_depth(value, self.depth) {
                 schemas.push((idx, schema));
             }
         }
@@ -142,7 +155,7 @@ mod tests {
             json!({"name": "Charlie", "age": 35}),
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();
@@ -158,7 +171,7 @@ mod tests {
             json!({"id": 123, "role": "admin"}),
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();
@@ -179,7 +192,7 @@ mod tests {
 
         // Threshold 0.6 means at least 60% fields must match
         // "name" and "age" match = 2/3 = 0.666, so should cluster with first entry
-        let mut clusterer = SchemaClusterer::new(0.6);
+        let mut clusterer = SchemaClusterer::new(0.6, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();
@@ -197,7 +210,7 @@ mod tests {
             json!({"event": "login", "user_id": 3}),
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();
@@ -221,7 +234,7 @@ mod tests {
             json!({"email": "unique@example.com"}), // Outlier
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let singletons = clusterer.get_singleton_clusters();
@@ -240,7 +253,7 @@ mod tests {
             json!({"name": "C"}),
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();
@@ -255,6 +268,29 @@ mod tests {
     }
 
     #[test]
+    fn test_depth1_splits_envelope_pattern() {
+        // At flat depth all three record types share {type, data, meta} → 1 cluster.
+        // At depth=1 the different data sub-schemas split them into 3 clusters.
+        let user_event  = json!({"type":"user_event",  "data":{"id":1,"name":"alice","role":"member"}, "meta":{"ts":"t","region":"r"}});
+        let order_event = json!({"type":"order_event", "data":{"id":1001,"amount":49.99,"status":"ok"}, "meta":{"ts":"t","region":"r"}});
+        let error_event = json!({"type":"error_event", "data":{"code":500,"message":"err"}, "meta":{"ts":"t","region":"r"}});
+
+        let values = vec![
+            user_event.clone(), user_event.clone(),
+            order_event.clone(), order_event.clone(),
+            error_event.clone(),
+        ];
+
+        let mut flat = SchemaClusterer::new(0.8, 0);
+        flat.process(&values);
+        assert_eq!(flat.get_clusters().len(), 1, "flat depth should produce 1 cluster");
+
+        let mut deep = SchemaClusterer::new(0.8, 1);
+        deep.process(&values);
+        assert_eq!(deep.get_clusters().len(), 3, "depth=1 should produce 3 clusters");
+    }
+
+    #[test]
     fn test_non_object_values_ignored() {
         let values = vec![
             json!("string"),
@@ -264,7 +300,7 @@ mod tests {
             json!({"name": "Bob"}),
         ];
 
-        let mut clusterer = SchemaClusterer::new(1.0);
+        let mut clusterer = SchemaClusterer::new(1.0, 0);
         clusterer.process(&values);
 
         let clusters = clusterer.get_clusters();

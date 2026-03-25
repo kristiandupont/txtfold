@@ -47,14 +47,16 @@ cat server.log | txtfold
 
 txtfold automatically selects an algorithm based on your input. You can override with `--algorithm`.
 
-| Algorithm | Best for | Typical compression |
-|---|---|---|
-| `template` | Structured logs with clear token patterns | 30–40% |
-| `clustering` | Entries differing only in IDs, numbers, service names | 70–80% |
-| `ngram` | Finding unusual entries in otherwise uniform logs | 2–5% (outliers only) |
-| `schema` | JSON arrays or maps with varying field sets | varies |
+| Algorithm    | Best for                                              | Typical compression  |
+| ------------ | ----------------------------------------------------- | -------------------- |
+| `template`   | Structured logs with clear token patterns             | 30–40%               |
+| `clustering` | Entries differing only in IDs, numbers, service names | 70–80%               |
+| `ngram`      | Finding unusual entries in otherwise uniform logs     | 2–5% (outliers only) |
+| `schema`     | JSON arrays or maps with varying field sets           | varies               |
+| `subtree`    | Single JSON documents with repeated sub-schemas       | varies               |
 
 **template** — extracts patterns with variable slots:
+
 ```
 [<TIMESTAMP>] INFO GET /api/users 200 <NUM>ms   (×2847)
 [<TIMESTAMP>] WARN GET /api/orders 404          (×312)
@@ -64,12 +66,26 @@ txtfold automatically selects an algorithm based on your input. You can override
 
 **ngram** — scores entries by how unusual their word combinations are. Only reports the bottom ~5% (auto-tuned). Good for finding the needle in the haystack.
 
-**schema** — for JSON input. Groups objects by structural similarity (which fields are present and what types they have). Singletons are flagged as outliers.
+**schema** — for JSON input. Groups objects by structural similarity (which fields are present and what types they have). Singletons are flagged as outliers. Use `--depth N` (default 1) to compare nested object schemas — objects that look identical at the top level but have structurally different sub-objects will be placed in separate clusters.
+
+**subtree** — for a single arbitrary JSON document. Walks the entire tree, collects every object at every depth, and clusters them by schema similarity. Reports which paths each structural pattern appears at:
+
+```
+Pattern (47 objects)
+Schema: { id: number, name: string, email: string }
+Appears at:
+  $.users[*]
+  $.team.members[*]
+  $.config.owner
+```
+
+Useful for API responses, config files, or exports where the same shape recurs at unpredictable locations.
 
 ### Parameters
 
 ```sh
 --threshold 0.8          # Clustering/schema similarity threshold (0.0–1.0)
+--depth 1                # Schema nesting depth for --algorithm schema (0 = flat)
 --ngram-size 2           # N-gram window size
 --outlier-threshold 0.0  # N-gram cutoff (0.0 = auto)
 --entry-mode multiline   # Force multi-line entry parsing (for stack traces)
@@ -86,7 +102,7 @@ Multi-line entries (stack traces, structured log blocks) are detected automatica
 - `markdown` (default) — human-readable summary with compression stats
 - `json` — structured output, suitable for downstream processing
 
-The JSON output schema is documented in `schema.json`.
+The JSON output schema is documented in `output-schema.json`.
 
 ## Project status
 

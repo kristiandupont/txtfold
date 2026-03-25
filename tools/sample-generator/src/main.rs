@@ -1,5 +1,6 @@
 use clap::Parser;
 use rand::Rng;
+use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -31,6 +32,14 @@ enum Preset {
     App,
     Noisy,
     Multiline,
+    /// Array of envelope-pattern records with nested schemas.
+    /// Tests schema clustering with depth: at flat depth all records look identical;
+    /// at depth=1 the three data sub-schemas (user/order/error) produce distinct clusters.
+    JsonRecords,
+    /// Single JSON document where the same schema appears at multiple distinct paths.
+    /// Tests the subtree algorithm: {id,name,email} at $.users[*], $.team.members[*],
+    /// $.config.owner; {order_id,amount,status,category} at $.orders[*], $.archive[*].
+    JsonDocument,
 }
 
 impl std::str::FromStr for Preset {
@@ -42,8 +51,10 @@ impl std::str::FromStr for Preset {
             "app" => Ok(Preset::App),
             "noisy" => Ok(Preset::Noisy),
             "multiline" => Ok(Preset::Multiline),
+            "json-records" | "json_records" => Ok(Preset::JsonRecords),
+            "json-document" | "json_document" => Ok(Preset::JsonDocument),
             _ => Err(format!(
-                "Invalid preset: {}. Use 'web', 'app', 'noisy', or 'multiline'",
+                "Invalid preset: {}. Use 'web', 'app', 'noisy', 'multiline', 'json-records', or 'json-document'",
                 s
             )),
         }
@@ -286,6 +297,141 @@ impl LogGenerator {
         logs
     }
 
+    /// Generate an array of envelope-pattern records with nested schemas.
+    ///
+    /// All records share the top-level shape {type, data, meta} (except rare system
+    /// events which omit meta). At flat schema depth this collapses to 1–2 clusters.
+    /// At depth=1 the three distinct `data` sub-schemas produce separate clusters:
+    ///   user_event  → data: {id: number, name: string, role: string}   (~60%)
+    ///   order_event → data: {id: number, amount: number, status: string} (~25%)
+    ///   error_event → data: {code: number, message: string}              (~12%)
+    ///   system_event → {type, data: {component, action}} — no meta       ( ~3%)
+    fn generate_json_records(&mut self, count: usize) -> Value {
+        let names   = ["alice", "bob", "charlie", "diana", "eve", "frank"];
+        let roles   = ["member", "admin", "moderator"];
+        let regions = ["us-east", "us-west", "eu-west", "ap-south"];
+        let order_statuses  = ["pending", "processing", "complete", "failed"];
+        let error_codes: [u64; 5] = [400, 401, 403, 404, 500];
+        let error_messages  = ["not_found", "unauthorized", "server_error", "timeout", "bad_request"];
+        let components = ["scheduler", "gc", "health-check"];
+        let actions    = ["restart", "flush", "probe"];
+
+        let mut records = Vec::with_capacity(count);
+        for _ in 0..count {
+            let roll: u32 = self.rng.gen_range(0..100);
+            let record = if roll < 60 {
+                let name   = names[self.rng.gen_range(0..names.len())];
+                let role   = roles[self.rng.gen_range(0..roles.len())];
+                let region = regions[self.rng.gen_range(0..regions.len())];
+                json!({
+                    "type": "user_event",
+                    "data": { "id": self.rng.gen_range(1u64..10_000), "name": name, "role": role },
+                    "meta": { "ts": self.timestamp(), "region": region }
+                })
+            } else if roll < 85 {
+                let status = order_statuses[self.rng.gen_range(0..order_statuses.len())];
+                let region = regions[self.rng.gen_range(0..regions.len())];
+                json!({
+                    "type": "order_event",
+                    "data": {
+                        "id": self.rng.gen_range(1_000u64..99_999),
+                        "amount": self.rng.gen_range(100u64..50_000) as f64 / 100.0,
+                        "status": status
+                    },
+                    "meta": { "ts": self.timestamp(), "region": region }
+                })
+            } else if roll < 97 {
+                let code    = error_codes[self.rng.gen_range(0..error_codes.len())];
+                let message = error_messages[self.rng.gen_range(0..error_messages.len())];
+                let region  = regions[self.rng.gen_range(0..regions.len())];
+                json!({
+                    "type": "error_event",
+                    "data": { "code": code, "message": message },
+                    "meta": { "ts": self.timestamp(), "region": region }
+                })
+            } else {
+                let component = components[self.rng.gen_range(0..components.len())];
+                let action    = actions[self.rng.gen_range(0..actions.len())];
+                json!({
+                    "type": "system_event",
+                    "data": { "component": component, "action": action }
+                })
+            };
+            records.push(record);
+        }
+        Value::Array(records)
+    }
+
+    /// Generate a single JSON document where the same schema appears at multiple paths.
+    ///
+    /// Two repeating shapes:
+    ///   {id, name, email}  — at $.users[*], $.team.members[*], $.config.owner
+    ///   {order_id, amount, status, category} — at $.orders[*], $.archive[*]
+    ///
+    /// `scale` controls the number of items per collection (min-clamped so tests
+    /// always have enough examples even at low values).
+    fn generate_json_document(&mut self, scale: usize) -> Value {
+        let names      = ["alice", "bob", "charlie", "diana", "eve", "frank", "grace", "henry"];
+        let domains    = ["example.com", "corp.io", "test.net"];
+        let statuses   = ["pending", "processing", "complete", "failed"];
+        let categories = ["electronics", "clothing", "books", "food"];
+
+        // user shape: {id, name, email}
+        let user_count = (scale / 2).max(8);
+        let users: Vec<Value> = (0..user_count).map(|i| {
+            let name   = names[self.rng.gen_range(0..names.len())];
+            let domain = domains[self.rng.gen_range(0..domains.len())];
+            json!({ "id": i + 1, "name": name, "email": format!("{}@{}", name, domain) })
+        }).collect();
+
+        // same shape, different path
+        let member_count = (scale / 5).max(4);
+        let members: Vec<Value> = (0..member_count).map(|i| {
+            let name   = names[self.rng.gen_range(0..names.len())];
+            let domain = domains[self.rng.gen_range(0..domains.len())];
+            json!({ "id": 1_000 + i + 1, "name": name, "email": format!("team_{}@{}", name, domain) })
+        }).collect();
+
+        // order shape: {order_id, amount, status, category}
+        let order_count = (scale / 3).max(6);
+        let orders: Vec<Value> = (0..order_count).map(|i| {
+            let status   = statuses[self.rng.gen_range(0..statuses.len())];
+            let category = categories[self.rng.gen_range(0..categories.len())];
+            json!({
+                "order_id": 2_000 + i + 1,
+                "amount": self.rng.gen_range(100u64..50_000) as f64 / 100.0,
+                "status": status,
+                "category": category
+            })
+        }).collect();
+
+        // same order shape, different path
+        let archive_count = (scale / 10).max(3);
+        let archive: Vec<Value> = (0..archive_count).map(|i| {
+            let category = categories[self.rng.gen_range(0..categories.len())];
+            json!({
+                "order_id": 9_000 + i + 1,
+                "amount": self.rng.gen_range(100u64..50_000) as f64 / 100.0,
+                "status": "complete",
+                "category": category
+            })
+        }).collect();
+
+        json!({
+            "users": users,
+            "team": {
+                "name": "engineering",
+                "members": members
+            },
+            "config": {
+                // single object, same user shape — third distinct path for that schema
+                "owner": { "id": 0, "name": "system", "email": "system@internal" }
+            },
+            "orders": orders,
+            "archive": archive
+        })
+    }
+
     fn generate_multiline(&mut self, count: usize) -> Vec<String> {
         let mut logs = Vec::new();
         let java_exceptions = [
@@ -472,20 +618,33 @@ fn main() -> io::Result<()> {
 
     let mut generator = LogGenerator::new(args.seed);
 
-    let logs = match args.preset {
-        Preset::Web => generator.generate_web(args.lines),
-        Preset::App => generator.generate_app(args.lines),
-        Preset::Noisy => generator.generate_noisy(args.lines),
-        Preset::Multiline => generator.generate_multiline(args.lines),
-    };
-
     let stdout = io::stdout();
     let mut writer: Box<dyn Write> = match &args.output {
         Some(path) => Box::new(File::create(path)?),
         None => Box::new(stdout.lock()),
     };
-    for log in &logs {
-        writeln!(writer, "{}", log)?;
+
+    match args.preset {
+        Preset::Web | Preset::App | Preset::Noisy | Preset::Multiline => {
+            let logs = match args.preset {
+                Preset::Web => generator.generate_web(args.lines),
+                Preset::App => generator.generate_app(args.lines),
+                Preset::Noisy => generator.generate_noisy(args.lines),
+                Preset::Multiline => generator.generate_multiline(args.lines),
+                _ => unreachable!(),
+            };
+            for log in &logs {
+                writeln!(writer, "{}", log)?;
+            }
+        }
+        Preset::JsonRecords => {
+            let json = generator.generate_json_records(args.lines);
+            writeln!(writer, "{}", json)?;
+        }
+        Preset::JsonDocument => {
+            let json = generator.generate_json_document(args.lines);
+            writeln!(writer, "{}", json)?;
+        }
     }
     drop(writer);
 

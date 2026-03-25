@@ -17,6 +17,7 @@ pub mod patterns;
 pub mod registry;
 pub mod schema;
 pub mod schema_clustering;
+pub mod subtree;
 pub mod template;
 pub mod tokenizer;
 
@@ -79,11 +80,19 @@ pub fn process_text(
             return Err("No JSON objects found in input".to_string());
         }
 
-        let mut clusterer = SchemaClusterer::new(threshold);
+        let mut clusterer = SchemaClusterer::new(threshold, 1);
         clusterer.process(&values);
 
         let builder = OutputBuilder::new(vec![]);
         builder.build_from_schemas(&clusterer, &values)
+    } else if algo == "subtree" {
+        use crate::subtree::SubtreeFinder;
+        let root: serde_json::Value = serde_json::from_str(input)
+            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        let mut finder = SubtreeFinder::new(threshold);
+        finder.process(&root);
+        let builder = OutputBuilder::new(vec![]);
+        builder.build_from_subtree(&finder, &root)
     } else {
         // Text log path
         let parser = EntryParser::new(EntryMode::Auto);

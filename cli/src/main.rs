@@ -12,6 +12,7 @@ use txtfold::output::OutputBuilder;
 use txtfold::parser::{is_json, is_json_map, parse_json_array, parse_json_map, EntryMode, EntryParser};
 use txtfold::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
 use txtfold::schema_clustering::SchemaClusterer;
+use txtfold::subtree::SubtreeFinder;
 use txtfold::template::TemplateExtractor;
 
 /// Leak a String to produce a `&'static str`.
@@ -207,7 +208,8 @@ fn main() -> Result<()> {
         }
 
         let threshold = *matches.get_one::<f64>("threshold").unwrap();
-        let mut clusterer = SchemaClusterer::new(threshold);
+        let depth = *matches.get_one::<usize>("depth").unwrap();
+        let mut clusterer = SchemaClusterer::new(threshold, depth);
         clusterer.process(&values);
 
         let mut builder = OutputBuilder::new(vec![]);
@@ -215,6 +217,19 @@ fn main() -> Result<()> {
             builder = builder.with_input_file(name);
         }
         builder.build_from_schemas(&clusterer, &values)
+    } else if algorithm == "subtree" {
+        let root: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {e}"))?;
+
+        let threshold = *matches.get_one::<f64>("threshold").unwrap();
+        let mut finder = SubtreeFinder::new(threshold);
+        finder.process(&root);
+
+        let mut builder = OutputBuilder::new(vec![]);
+        if let Some(name) = filename {
+            builder = builder.with_input_file(name);
+        }
+        builder.build_from_subtree(&finder, &root)
     } else {
         let entry_mode = match entry_mode_arg {
             "single" => EntryMode::SingleLine,

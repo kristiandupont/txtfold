@@ -144,6 +144,120 @@ fn test_multiline_preset() {
     assert!(total_entries > 0 && total_entries <= 100);
 }
 
+// ── nested JSON tests ─────────────────────────────────────────────────────────
+//
+// The json-records preset generates an envelope-pattern array where every record
+// has the same top-level schema {type, data, meta} regardless of record type.
+// This makes it a good litmus test for depth-aware schema clustering:
+//   flat (depth=0) → 1-2 clusters (envelope dominates)
+//   depth=1        → 3+ clusters (user/order/error data sub-schemas diverge)
+//
+// The json-document preset generates a single JSON object where the same schema
+// appears at several distinct paths, which is what the subtree algorithm targets.
+
+/// Flat schema on json-records: the envelope pattern {type,data,meta} dominates,
+/// so nearly all records land in one cluster. Tests that existing schema clustering
+/// works correctly with the new preset (should pass before any new features land).
+#[test]
+fn test_json_records_schema_flat() {
+    let data = generate_sample("json-records", 200, 42);
+    let output = run_txtfold(&data, &["--algorithm", "schema", "--depth", "0"]);
+
+    assert_coarse_invariants(&output, "json-records/schema-flat");
+    assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
+
+    // At flat depth all three event types look like {type: string, data: object,
+    // meta: object} → they merge into one large cluster.  System events (no meta)
+    // form a separate tiny cluster.  So we expect ≤3 groups total.
+    let schemas = output["results"]["schemas"].as_array()
+        .expect("json-records/schema-flat: results.schemas missing");
+    assert!(
+        schemas.len() <= 3,
+        "flat schema should find ≤3 top-level shapes, got {}",
+        schemas.len()
+    );
+
+    // The dominant cluster should contain most of the 200 records (~97%).
+    let largest = schemas[0]["count"].as_u64().unwrap_or(0);
+    assert!(
+        largest > 150,
+        "dominant cluster should contain >150 of 200 records, got {}",
+        largest
+    );
+}
+
+/// Depth-1 schema on json-records: the three distinct `data` sub-schemas
+/// (user/order/error) should produce separate clusters once nested schemas
+/// are compared.
+///
+/// This test is EXPECTED TO FAIL until --depth is implemented in the schema
+/// algorithm.
+#[test]
+fn test_json_records_schema_depth1() {
+    let data = generate_sample("json-records", 200, 42);
+    let output = run_txtfold(&data, &["--algorithm", "schema", "--depth", "1"]);
+
+    assert_coarse_invariants(&output, "json-records/schema-depth1");
+    assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
+
+    // With depth=1 the user/order/error data sub-schemas are structurally distinct
+    // enough (different field sets) to fall below the default 0.8 threshold →
+    // at least 3 separate clusters.
+    let schemas = output["results"]["schemas"].as_array()
+        .expect("json-records/schema-depth1: results.schemas missing");
+    assert!(
+        schemas.len() >= 3,
+        "depth-1 schema should find ≥3 groups (user/order/error), got {}",
+        schemas.len()
+    );
+
+    // No single cluster should swallow >80% of records (user events are ~60%, not
+    // order+error).
+    let largest = schemas[0]["count"].as_u64().unwrap_or(0);
+    assert!(
+        largest < 160,
+        "with depth=1 no cluster should contain >160 of 200 records, got {}",
+        largest
+    );
+}
+
+/// Subtree algorithm on json-document: the same schema appears at multiple
+/// distinct paths and should be reported as one pattern with several locations.
+///
+/// This test is EXPECTED TO FAIL until the subtree algorithm is implemented.
+#[test]
+fn test_json_document_subtree() {
+    let data = generate_sample("json-document", 100, 42);
+    let output = run_txtfold(&data, &["--algorithm", "subtree"]);
+
+    assert_coarse_invariants(&output, "json-document/subtree");
+    assert_eq!(output["metadata"]["algorithm"], "subtree");
+
+    let patterns = output["results"]["patterns"].as_array()
+        .expect("json-document/subtree: results.patterns missing");
+    assert!(!patterns.is_empty(), "subtree should find at least one pattern");
+
+    // The user shape {id, name, email} appears at $.users[*], $.team.members[*],
+    // and $.config.owner → at least one pattern must list ≥3 distinct paths.
+    let wide_pattern = patterns.iter().find(|p| {
+        p["paths"].as_array().map(|v| v.len() >= 3).unwrap_or(false)
+    });
+    assert!(
+        wide_pattern.is_some(),
+        "expected a pattern appearing at ≥3 distinct paths (user shape)"
+    );
+
+    // The order shape {order_id, amount, status, category} appears at $.orders[*]
+    // and $.archive[*] → at least one pattern with ≥2 paths.
+    let two_path_pattern = patterns.iter().find(|p| {
+        p["paths"].as_array().map(|v| v.len() >= 2).unwrap_or(false)
+    });
+    assert!(
+        two_path_pattern.is_some(),
+        "expected a pattern appearing at ≥2 distinct paths (order shape)"
+    );
+}
+
 #[test]
 fn test_deterministic_with_seed() {
     let data1 = generate_sample("web", 200, 99);

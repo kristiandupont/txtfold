@@ -4,6 +4,7 @@ use crate::clustering::{Cluster, EditDistanceClusterer};
 use crate::entry::Entry;
 use crate::ngram::NgramOutlierDetector;
 use crate::schema_clustering::SchemaClusterer;
+use crate::subtree::SubtreeFinder;
 use crate::template::{TemplateExtractor, TemplateGroup};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -40,6 +41,11 @@ pub enum AlgorithmResults {
     SchemaGrouped {
         schemas: Vec<SchemaGroupOutput>,
         outliers: Vec<OutlierOutput>,
+    },
+    /// Path-based pattern grouping (subtree algorithm)
+    PathGrouped {
+        patterns: Vec<PathPatternOutput>,
+        singletons: Vec<OutlierOutput>,
     },
 }
 
@@ -177,6 +183,26 @@ pub struct SchemaGroupOutput {
     pub sample_values: HashMap<String, Vec<String>>,
     /// Entry indices (which entries have this schema)
     pub entry_indices: Vec<usize>,
+}
+
+/// A structural pattern found at one or more paths in a JSON document (subtree algorithm)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct PathPatternOutput {
+    /// Pattern identifier
+    pub id: String,
+    /// Human-readable schema description
+    pub schema_description: String,
+    /// Fields present in this schema
+    pub fields: Vec<String>,
+    /// Total number of objects that matched this pattern
+    pub count: usize,
+    /// Percentage of total objects found in the document
+    pub percentage: f64,
+    /// Normalized paths where this pattern appears (e.g. `$.users[*]`)
+    pub paths: Vec<String>,
+    /// Sample field values
+    pub sample_values: HashMap<String, Vec<String>>,
 }
 
 /// Builder for creating AnalysisOutput from extraction results
@@ -658,6 +684,93 @@ impl OutputBuilder {
         }
 
         outliers
+    }
+
+    /// Build output from a SubtreeFinder run on a raw JSON document.
+    pub fn build_from_subtree(self, finder: &SubtreeFinder, root: &Value) -> AnalysisOutput {
+        // Count total objects visited (patterns + singletons)
+        let pattern_objects: usize = finder.get_patterns().iter().map(|p| p.count).sum();
+        let singleton_count = finder.get_singletons().len();
+        let total_entries = pattern_objects + singleton_count;
+
+        // Build pattern outputs
+        let mut pattern_outputs: Vec<PathPatternOutput> = Vec::new();
+        for (idx, p) in finder.get_patterns().iter().enumerate() {
+            let percentage = if total_entries > 0 {
+                p.count as f64 / total_entries as f64 * 100.0
+            } else {
+                0.0
+            };
+
+            let mut limited_samples: HashMap<String, Vec<String>> = HashMap::new();
+            for (field, vals) in &p.sample_values {
+                let mut unique: Vec<String> = vals.iter().cloned().collect();
+                unique.sort();
+                unique.dedup();
+                unique.truncate(5);
+                limited_samples.insert(field.clone(), unique);
+            }
+
+            pattern_outputs.push(PathPatternOutput {
+                id: format!("pattern_{}", idx),
+                schema_description: p.schema.description(),
+                fields: p.schema.fields.clone(),
+                count: p.count,
+                percentage,
+                paths: p.paths.clone(),
+                sample_values: limited_samples,
+            });
+        }
+
+        // Build singleton outputs
+        let mut singleton_outputs: Vec<OutlierOutput> = Vec::new();
+        for (outlier_idx, (path, value)) in finder.get_singletons().iter().enumerate() {
+            singleton_outputs.push(OutlierOutput {
+                id: format!("singleton_{}", outlier_idx),
+                content: serde_json::to_string_pretty(value).unwrap_or_default(),
+                line_number: 0,
+                reason: format!("unique_schema at {path}"),
+                score: 0.0,
+            });
+        }
+
+        // Compression ratio: pattern descriptions vs original document size
+        let original_size = serde_json::to_string(root).unwrap_or_default().len();
+        let compressed_size: usize = pattern_outputs.iter().map(|p| {
+            p.schema_description.len()
+                + p.paths.iter().map(|s| s.len()).sum::<usize>()
+                + p.sample_values.values()
+                    .map(|v| v.iter().map(|s| s.len()).sum::<usize>())
+                    .sum::<usize>()
+        }).sum::<usize>()
+            + singleton_outputs.iter().map(|o| o.content.len()).sum::<usize>();
+
+        let compression_ratio = if original_size > 0 {
+            compressed_size as f64 / original_size as f64
+        } else {
+            0.0
+        };
+
+        let unique_patterns = pattern_outputs.len();
+        let largest_cluster = pattern_outputs.iter().map(|p| p.count).max().unwrap_or(0);
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: "subtree".to_string(),
+                compression_ratio,
+            },
+            summary: AnalysisSummary {
+                unique_patterns,
+                outliers: singleton_outputs.len(),
+                largest_cluster,
+            },
+            results: AlgorithmResults::PathGrouped {
+                patterns: pattern_outputs,
+                singletons: singleton_outputs,
+            },
+        }
     }
 
     /// Calculate compression ratio

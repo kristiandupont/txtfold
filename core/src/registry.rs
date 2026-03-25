@@ -10,6 +10,7 @@ use crate::metadata::{AlgorithmMetadata, FormatterMetadata, InputFormatMetadata}
 use crate::ngram::NgramOutlierDetector;
 use crate::parser::EntryParser;
 use crate::schema_clustering::SchemaClusterer;
+use crate::subtree::SubtreeFinder;
 use crate::template::TemplateExtractor;
 
 /// All available algorithms in the library
@@ -18,6 +19,7 @@ pub const ALL_ALGORITHMS: &[AlgorithmMetadata] = &[
     EditDistanceClusterer::METADATA,
     NgramOutlierDetector::METADATA,
     SchemaClusterer::METADATA,
+    SubtreeFinder::METADATA,
 ];
 
 /// All available output formatters in the library
@@ -66,7 +68,7 @@ mod tests {
 
     #[test]
     fn test_all_algorithms_registered() {
-        assert_eq!(ALL_ALGORITHMS.len(), 4);
+        assert_eq!(ALL_ALGORITHMS.len(), 5);
 
         // Check names
         let names: Vec<&str> = ALL_ALGORITHMS.iter().map(|a| a.name).collect();
@@ -74,6 +76,7 @@ mod tests {
         assert!(names.contains(&"clustering"));
         assert!(names.contains(&"ngram"));
         assert!(names.contains(&"schema"));
+        assert!(names.contains(&"subtree"));
     }
 
     #[test]

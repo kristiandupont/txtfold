@@ -121,6 +121,35 @@
               ]
             }
           }
+        },
+        {
+          "description": "Path-based pattern grouping (subtree algorithm)",
+          "type": "object",
+          "required": [
+            "patterns",
+            "singletons",
+            "type"
+          ],
+          "properties": {
+            "patterns": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PathPatternOutput"
+              }
+            },
+            "singletons": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "path_grouped"
+              ]
+            }
+          }
         }
       ]
     },
@@ -330,6 +359,64 @@
           "description": "Outlier score (lower = more unusual)",
           "type": "number",
           "format": "double"
+        }
+      }
+    },
+    "PathPatternOutput": {
+      "description": "A structural pattern found at one or more paths in a JSON document (subtree algorithm)",
+      "type": "object",
+      "required": [
+        "count",
+        "fields",
+        "id",
+        "paths",
+        "percentage",
+        "sample_values",
+        "schema_description"
+      ],
+      "properties": {
+        "count": {
+          "description": "Total number of objects that matched this pattern",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "fields": {
+          "description": "Fields present in this schema",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Pattern identifier",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Normalized paths where this pattern appears (e.g. `$.users[*]`)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "percentage": {
+          "description": "Percentage of total objects found in the document",
+          "type": "number",
+          "format": "double"
+        },
+        "sample_values": {
+          "description": "Sample field values",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "schema_description": {
+          "description": "Human-readable schema description",
+          "type": "string"
         }
       }
     },

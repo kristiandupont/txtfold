@@ -70,6 +70,9 @@ impl MarkdownFormatter {
             AlgorithmResults::SchemaGrouped { schemas, outliers } => {
                 Self::format_schema_grouped_results(&mut md, schemas, outliers);
             }
+            AlgorithmResults::PathGrouped { patterns, singletons } => {
+                Self::format_path_grouped_results(&mut md, patterns, singletons);
+            }
         }
 
         md
@@ -293,6 +296,59 @@ impl MarkdownFormatter {
                 md.push_str(&outlier.content);
                 md.push_str("\n```\n\n");
             }
+        }
+    }
+
+    /// Format path-grouped results (subtree algorithm)
+    fn format_path_grouped_results(
+        md: &mut String,
+        patterns: &[crate::output::PathPatternOutput],
+        singletons: &[crate::output::OutlierOutput],
+    ) {
+        md.push_str("## Subtree Patterns\n\n");
+
+        if patterns.is_empty() {
+            md.push_str("No repeated structural patterns found.\n\n");
+        }
+
+        for pattern in patterns {
+            md.push_str(&format!(
+                "### Pattern {} ({} objects, {:.1}%)\n\n",
+                pattern.id, pattern.count, pattern.percentage
+            ));
+
+            md.push_str("**Schema**:\n```\n");
+            md.push_str(&pattern.schema_description);
+            md.push_str("\n```\n\n");
+
+            md.push_str("**Appears at**:\n");
+            for path in &pattern.paths {
+                md.push_str(&format!("- `{}`\n", path));
+            }
+            md.push_str("\n");
+
+            if !pattern.sample_values.is_empty() {
+                md.push_str("**Sample values**:\n");
+                for (field, values) in &pattern.sample_values {
+                    if !values.is_empty() {
+                        md.push_str(&format!("- `{}`: ", field));
+                        let value_str: Vec<String> =
+                            values.iter().map(|v| format!("`{}`", v)).collect();
+                        md.push_str(&value_str.join(", "));
+                        md.push_str("\n");
+                    }
+                }
+                md.push_str("\n");
+            }
+        }
+
+        if !singletons.is_empty() {
+            md.push_str("## Singletons\n\n");
+            md.push_str("Objects with a unique schema (appeared only once):\n\n");
+            for singleton in singletons {
+                md.push_str(&format!("- **{}**: {}\n", singleton.id, singleton.reason));
+            }
+            md.push_str("\n");
         }
     }
 }
