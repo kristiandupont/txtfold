@@ -158,7 +158,7 @@
       "type": "object",
       "required": [
         "algorithm",
-        "compression_ratio",
+        "reduction_ratio",
         "total_entries"
       ],
       "properties": {
@@ -166,8 +166,8 @@
           "description": "Algorithm used",
           "type": "string"
         },
-        "compression_ratio": {
-          "description": "Compression ratio (output size / input size)",
+        "reduction_ratio": {
+          "description": "Reduction ratio (output size / input size)",
           "type": "number",
           "format": "double"
         },

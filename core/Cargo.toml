@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Deterministic text compression tool for analyzing large log files and text data"
-keywords = ["compression", "logs", "analysis", "patterns", "text"]
+description = "Identifies patterns and outliers in large log files and structured data"
+keywords = ["logs", "analysis", "patterns", "summarization", "text"]
 categories = ["text-processing", "command-line-utilities", "data-structures"]
 readme = "../README.md"
 

@@ -88,7 +88,7 @@ fn build_cli() -> Command {
     }
 
     let mut cmd = Command::new("txtfold")
-        .about("Deterministic text compression for log analysis")
+        .about("Identify patterns and outliers in large log files and structured data")
         .version(txtfold::version())
         .arg(
             Arg::new("input")

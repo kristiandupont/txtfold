@@ -1,6 +1,6 @@
 # txtfold
 
-Deterministic text compression for large log files and structured data. Converts thousands of lines into a human- or LLM-readable summary by identifying repeated patterns and surfacing outliers.
+Identifies repeated patterns and surfaces outliers in large log files and structured data. Converts thousands of lines into a human- or LLM-readable summary.
 
 No ML, no fuzzy logic — same input always produces the same output.
 
@@ -10,11 +10,11 @@ Log files and structured records are repetitive by nature. When you need to reas
 
 **One-off analysis**: summarize a large log file before reading it, or before handing it to an LLM.
 
-**In a pipeline**: compress logs before they reach a context window; deduplicate records before embedding them; surface anomalies for a monitoring agent.
+**In a pipeline**: reduce logs before they reach a context window; deduplicate records before embedding them; surface anomalies for a monitoring agent.
 
 ## Use cases
 
-**LLM context window pre-compression** — you have 50K lines of logs and a bounded context window. Run txtfold first, feed the summary. Works well in CI pipelines (compress test output before sending to a triage agent), incident response (compress recent logs before root-cause analysis), or anywhere you need to fit large text into a prompt.
+**Reducing logs for LLM context windows** — you have 50K lines of logs and a bounded context window. Run txtfold first, feed the summary. Works well in CI pipelines (reduce test output before sending to a triage agent), incident response (reduce recent logs before root-cause analysis), or anywhere you need to fit large text into a prompt.
 
 **RAG pre-indexing** — before embedding log lines or JSON records, collapse near-duplicates into canonical representatives. You embed the representative + count rather than thousands of repetitive chunks, reducing both embedding cost and retrieval noise. The outliers txtfold flags are often the semantically interesting entries worth indexing separately.
 
@@ -47,7 +47,7 @@ cat server.log | txtfold
 
 txtfold automatically selects an algorithm based on your input. You can override with `--algorithm`.
 
-| Algorithm    | Best for                                              | Typical compression  |
+| Algorithm    | Best for                                              | Typical reduction    |
 | ------------ | ----------------------------------------------------- | -------------------- |
 | `template`   | Structured logs with clear token patterns             | 30–40%               |
 | `clustering` | Entries differing only in IDs, numbers, service names | 70–80%               |
@@ -99,10 +99,20 @@ Multi-line entries (stack traces, structured log blocks) are detected automatica
 
 ## Output formats
 
-- `markdown` (default) — human-readable summary with compression stats
+- `markdown` (default) — human-readable summary with reduction stats
 - `json` — structured output, suitable for downstream processing
 
 The JSON output schema is documented in `output-schema.json`.
+
+## Compared to alternatives
+
+**`sort | uniq -c`** — handles exact duplicates only. txtfold's template and clustering algorithms collapse near-duplicates: entries that differ only in timestamps, IDs, or numeric values still count as the same pattern.
+
+**Drain, logmine, LogPai** — ML-based log parsers that require fitting a model to your data. Results vary across runs and deployments. txtfold is fully deterministic: the same input always produces the same output, which matters in CI pipelines and monitoring workflows.
+
+**Embeddings + vector search** — a valid approach when you want to query logs semantically, but requires infrastructure (an embedding model, a vector store) and produces results only a model can consume. txtfold's output is plain text readable by both humans and LLMs, with no external dependencies and no per-run cost.
+
+**lnav, grep, awk** — tools for navigating and filtering logs, not summarizing them. They show you lines that match a pattern; txtfold tells you what the patterns are.
 
 ## Project status
 

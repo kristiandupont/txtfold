@@ -1,4 +1,4 @@
-//! txtfold: Deterministic text compression for log analysis
+//! txtfold: Deterministic pattern summarization for log files and structured data
 //!
 //! This library provides algorithms for identifying patterns in large text files,
 //! extracting templates, and detecting outliers.

@@ -87,12 +87,12 @@ fn assert_coarse_invariants(output: &serde_json::Value, label: &str) {
         .unwrap_or_else(|| panic!("{label}: missing metadata.total_entries"));
     assert!(total_entries > 0, "{label}: total_entries should be > 0");
 
-    let ratio = output["metadata"]["compression_ratio"]
+    let ratio = output["metadata"]["reduction_ratio"]
         .as_f64()
-        .unwrap_or_else(|| panic!("{label}: missing metadata.compression_ratio"));
+        .unwrap_or_else(|| panic!("{label}: missing metadata.reduction_ratio"));
     assert!(
         ratio > 0.0 && ratio < 2.0,
-        "{label}: compression_ratio {ratio:.3} out of expected range (0, 2)"
+        "{label}: reduction_ratio {ratio:.3} out of expected range (0, 2)"
     );
 
     // Grouped and schema_grouped results must contain at least one pattern.

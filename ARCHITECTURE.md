@@ -1,6 +1,6 @@
 # txtfold: Architecture
 
-A deterministic text compression tool. Converts large files into human/LLM-friendly summaries by identifying patterns and highlighting outliers. No ML, no fuzzy logic — same input always produces same output.
+Identifies patterns and outliers in large log files and structured data. Converts large files into human/LLM-friendly summaries. No ML, no fuzzy logic — same input always produces same output.
 
 ## Core Principles
 
@@ -70,11 +70,11 @@ Beginners get "just works" behavior; power users can override at any level.
 
 ## Algorithms
 
-**Template Extraction** — tokenizes entries, extracts patterns with variable slots (`[<TIMESTAMP>] INFO User <ID> logged in`). Best for structured logs with clear token patterns. Typical compression: 30–40%.
+**Template Extraction** — tokenizes entries, extracts patterns with variable slots (`[<TIMESTAMP>] INFO User <ID> logged in`). Best for structured logs with clear token patterns. Typical reduction: 30–40%.
 
-**Edit Distance Clustering** — groups similar entries using Levenshtein distance. Best for entries differing only in IDs/numbers/service names. Configurable threshold (default 0.8). Typical compression: 70–80%.
+**Edit Distance Clustering** — groups similar entries using Levenshtein distance. Best for entries differing only in IDs/numbers/service names. Configurable threshold (default 0.8). Typical reduction: 70–80%.
 
-**N-gram Outlier Detection** (word-based) — identifies rare word combinations. Best for finding unusual entries in uniform logs. Auto-threshold flags bottom ~5% by default; reports score distribution and threshold used. Typical compression: 2–5% (highlights outliers only).
+**N-gram Outlier Detection** (word-based) — identifies rare word combinations. Best for finding unusual entries in uniform logs. Auto-threshold flags bottom ~5% by default; reports score distribution and threshold used. Typical reduction: 2–5% (highlights outliers only).
 
 **JSON Schema Clustering** — groups JSON objects by structural similarity (field names + types). Configurable threshold (default 0.8 = 80% field match). Singletons flagged as outliers; sample values shown per field.
 

@@ -99,8 +99,8 @@ pub struct AnalysisMetadata {
     pub total_entries: usize,
     /// Algorithm used
     pub algorithm: String,
-    /// Compression ratio (output size / input size)
-    pub compression_ratio: f64,
+    /// Reduction ratio (output size / input size)
+    pub reduction_ratio: f64,
 }
 
 /// Summary statistics
@@ -270,15 +270,15 @@ impl OutputBuilder {
         // Detect outliers (groups with count = 1)
         let outliers = self.detect_outliers(&groups);
 
-        // Calculate compression ratio
-        let compression_ratio = self.calculate_compression_ratio(&group_outputs);
+        // Calculate reduction ratio
+        let reduction_ratio = self.calculate_reduction_ratio(&group_outputs);
 
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "template_extraction".to_string(),
-                compression_ratio,
+                reduction_ratio,
             },
             summary: AnalysisSummary {
                 unique_patterns,
@@ -352,8 +352,8 @@ impl OutputBuilder {
             threshold: Some(threshold_info),
         };
 
-        // Calculate compression ratio
-        let compressed_size = baseline.description.len()
+        // Calculate reduction ratio
+        let reduced_size = baseline.description.len()
             + common_features.iter().map(|s| s.len()).sum::<usize>()
             + outliers.iter().map(|o| o.content.len()).sum::<usize>();
 
@@ -363,8 +363,8 @@ impl OutputBuilder {
             .map(|e| e.as_single_string().len())
             .sum();
 
-        let compression_ratio = if original_size > 0 {
-            compressed_size as f64 / original_size as f64
+        let reduction_ratio = if original_size > 0 {
+            reduced_size as f64 / original_size as f64
         } else {
             0.0
         };
@@ -374,7 +374,7 @@ impl OutputBuilder {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "ngram_outlier_detection".to_string(),
-                compression_ratio,
+                reduction_ratio,
             },
             summary: AnalysisSummary {
                 unique_patterns: 0, // N-gram doesn't produce discrete patterns
@@ -455,15 +455,15 @@ impl OutputBuilder {
         // Detect outliers (clusters with count = 1)
         let outliers = self.detect_cluster_outliers(clusters);
 
-        // Calculate compression ratio
-        let compression_ratio = self.calculate_compression_ratio(&group_outputs);
+        // Calculate reduction ratio
+        let reduction_ratio = self.calculate_reduction_ratio(&group_outputs);
 
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "edit_distance_clustering".to_string(),
-                compression_ratio,
+                reduction_ratio,
             },
             summary: AnalysisSummary {
                 unique_patterns,
@@ -734,9 +734,9 @@ impl OutputBuilder {
             });
         }
 
-        // Compression ratio: pattern descriptions vs original document size
+        // Reduction ratio: pattern descriptions vs original document size
         let original_size = serde_json::to_string(root).unwrap_or_default().len();
-        let compressed_size: usize = pattern_outputs.iter().map(|p| {
+        let reduced_size: usize = pattern_outputs.iter().map(|p| {
             p.schema_description.len()
                 + p.paths.iter().map(|s| s.len()).sum::<usize>()
                 + p.sample_values.values()
@@ -745,8 +745,8 @@ impl OutputBuilder {
         }).sum::<usize>()
             + singleton_outputs.iter().map(|o| o.content.len()).sum::<usize>();
 
-        let compression_ratio = if original_size > 0 {
-            compressed_size as f64 / original_size as f64
+        let reduction_ratio = if original_size > 0 {
+            reduced_size as f64 / original_size as f64
         } else {
             0.0
         };
@@ -759,7 +759,7 @@ impl OutputBuilder {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "subtree".to_string(),
-                compression_ratio,
+                reduction_ratio,
             },
             summary: AnalysisSummary {
                 unique_patterns,
@@ -773,8 +773,8 @@ impl OutputBuilder {
         }
     }
 
-    /// Calculate compression ratio
-    fn calculate_compression_ratio(&self, groups: &[GroupOutput]) -> f64 {
+    /// Calculate reduction ratio
+    fn calculate_reduction_ratio(&self, groups: &[GroupOutput]) -> f64 {
         // Original size: sum of all entry contents
         let original_size: usize = self
             .entries
@@ -786,8 +786,8 @@ impl OutputBuilder {
             return 0.0;
         }
 
-        // Compressed size: sum of pattern strings + sample data
-        let compressed_size: usize = groups
+        // Reduced size: sum of pattern strings + sample data
+        let reduced_size: usize = groups
             .iter()
             .map(|g| {
                 // Pattern + count + samples
@@ -795,7 +795,7 @@ impl OutputBuilder {
             })
             .sum();
 
-        compressed_size as f64 / original_size as f64
+        reduced_size as f64 / original_size as f64
     }
 
     /// Build the output from a schema clusterer (for JSON data)
@@ -867,13 +867,13 @@ impl OutputBuilder {
             }
         }
 
-        // Calculate compression ratio
+        // Calculate reduction ratio
         let original_size: usize = values
             .iter()
             .map(|v| serde_json::to_string(v).unwrap_or_default().len())
             .sum();
 
-        let compressed_size: usize = schema_outputs
+        let reduced_size: usize = schema_outputs
             .iter()
             .map(|s| {
                 s.schema_description.len()
@@ -885,8 +885,8 @@ impl OutputBuilder {
             .sum::<usize>()
             + outliers.iter().map(|o| o.content.len()).sum::<usize>();
 
-        let compression_ratio = if original_size > 0 {
-            compressed_size as f64 / original_size as f64
+        let reduction_ratio = if original_size > 0 {
+            reduced_size as f64 / original_size as f64
         } else {
             0.0
         };
@@ -896,7 +896,7 @@ impl OutputBuilder {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "schema_clustering".to_string(),
-                compression_ratio,
+                reduction_ratio,
             },
             summary: AnalysisSummary {
                 unique_patterns: schema_outputs.len(),
@@ -1000,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    fn test_compression_ratio() {
+    fn test_reduction_ratio_metric() {
         let entries = vec![
             Entry::from_line("Same message".to_string(), 1),
             Entry::from_line("Same message".to_string(), 2),
@@ -1012,9 +1012,9 @@ mod tests {
 
         let output = OutputBuilder::new(entries).build(&extractor);
 
-        // Compression ratio should be less than 1.0 (we've compressed)
-        assert!(output.metadata.compression_ratio < 1.0);
-        assert!(output.metadata.compression_ratio > 0.0);
+        // Reduction ratio should be less than 1.0 (output is smaller than input)
+        assert!(output.metadata.reduction_ratio < 1.0);
+        assert!(output.metadata.reduction_ratio > 0.0);
     }
 
     #[test]

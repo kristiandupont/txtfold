@@ -3,7 +3,7 @@
     "input_file": "sample.log",
     "total_entries": 15,
     "algorithm": "template_extraction",
-    "compression_ratio": 1.5576662143826323
+    "reduction_ratio": 1.5576662143826323
   },
   "summary": {
     "unique_patterns": 10,

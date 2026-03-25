@@ -38,8 +38,8 @@ impl MarkdownFormatter {
             output.metadata.algorithm
         ));
         md.push_str(&format!(
-            "- **Compression ratio**: {:.2}%\n",
-            output.metadata.compression_ratio * 100.0
+            "- **Reduction ratio**: {:.2}%\n",
+            output.metadata.reduction_ratio * 100.0
         ));
         md.push_str("\n");
 

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "CLI tool for txtfold text compression and log analysis"
+description = "CLI tool for txtfold — pattern summarization and outlier detection for logs"
 
 [[bin]]
 name = "txtfold"
