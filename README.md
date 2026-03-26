@@ -20,7 +20,7 @@ Log files and structured records are repetitive by nature. When you need to reas
 
 **Anomaly detection for monitoring agents** — an LLM-based monitoring agent doesn't need every log line, it needs to know what changed. The n-gram algorithm already identifies statistically rare entries; combined with a diff across two time windows it becomes a "what changed since last deploy?" primitive.
 
-**Agent tool integration** — LLM agents can call txtfold as a tool when they fetch logs, database exports, or API responses too large to reason over directly. The planned Python and TypeScript bindings are the natural surface for this.
+**Agent tool integration** — LLM agents can call txtfold as a tool when they fetch logs, database exports, or API responses too large to reason over directly. The Python and TypeScript/npm bindings are the natural surface for this.
 
 **Fine-tuning dataset deduplication** — before sampling training data from logs or structured text, use txtfold to cluster and deduplicate. One representative per cluster rather than thousands of copies of the same line.
 
@@ -116,6 +116,6 @@ The JSON output schema is documented in `output-schema.json`.
 
 ## Project status
 
-Core algorithms and CLI are complete and tested. Language bindings (Python, TypeScript), web UI, and packaging (Homebrew, APT) are in progress.
+Core algorithms, CLI, and language bindings (Python/PyPI, TypeScript/npm) are complete and tested. Web UI is working. Packaging (Homebrew, APT, GitHub releases) and hosted docs are next.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how it works internally.

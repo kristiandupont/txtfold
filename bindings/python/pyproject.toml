@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "txtfold"
+version = "0.1.0"
+description = "Identifies patterns and outliers in large log files and structured data"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.8"
+keywords = ["logs", "analysis", "patterns", "summarization"]
+
+[tool.maturin]
+module-name = "txtfold._txtfold"
+python-source = "."
