@@ -1,0 +1,13 @@
+[package]
+name = "txtfold-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_txtfold"
+crate-type = ["cdylib"]
+
+[dependencies]
+txtfold = { path = "../../core" }
+pyo3 = { version = "0.23", features = ["extension-module"] }

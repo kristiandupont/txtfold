@@ -32,9 +32,11 @@ pub fn wasm_version() -> String {
     version().to_string()
 }
 
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn process_text(
+/// Run an analysis and return formatted output.
+///
+/// - `algorithm`: `"auto"`, `"template"`, `"clustering"`, `"ngram"`, `"schema"`, `"subtree"`
+/// - `format`: `"json"` or `"markdown"`
+pub fn process(
     input: &str,
     algorithm: &str,
     threshold: f64,
@@ -49,24 +51,16 @@ pub fn process_text(
     use crate::schema_clustering::SchemaClusterer;
     use crate::template::TemplateExtractor;
 
-    // Detect input format
     let is_json_input = is_json(input);
     let is_map = is_json_input && is_json_map(input);
 
-    // Auto-select algorithm if needed
     let algo = if algorithm == "auto" {
-        if is_json_input {
-            "schema"
-        } else {
-            "template"
-        }
+        if is_json_input { "schema" } else { "template" }
     } else {
         algorithm
     };
 
-    // Run selected algorithm
     let output = if algo == "schema" {
-        // JSON/Schema path
         let values = if is_map {
             let (values, _keys) = parse_json_map(input)
                 .map_err(|e| format!("Failed to parse JSON map: {}", e))?;
@@ -75,14 +69,11 @@ pub fn process_text(
             parse_json_array(input)
                 .map_err(|e| format!("Failed to parse JSON array: {}", e))?
         };
-
         if values.is_empty() {
             return Err("No JSON objects found in input".to_string());
         }
-
         let mut clusterer = SchemaClusterer::new(threshold, 1);
         clusterer.process(&values);
-
         let builder = OutputBuilder::new(vec![]);
         builder.build_from_schemas(&clusterer, &values)
     } else if algo == "subtree" {
@@ -94,33 +85,27 @@ pub fn process_text(
         let builder = OutputBuilder::new(vec![]);
         builder.build_from_subtree(&finder, &root)
     } else {
-        // Text log path
         let parser = EntryParser::new(EntryMode::Auto);
         let entries = parser.parse(input);
-
         if entries.is_empty() {
             return Err("Input is empty".to_string());
         }
-
         match algo {
             "template" => {
                 let mut extractor = TemplateExtractor::new();
                 extractor.process(&entries);
-
                 let builder = OutputBuilder::new(entries);
                 builder.build_from_templates(&extractor)
             }
             "clustering" => {
                 let mut clusterer = EditDistanceClusterer::new(threshold);
                 clusterer.process(&entries);
-
                 let builder = OutputBuilder::new(entries);
                 builder.build_from_clusters(&clusterer)
             }
             "ngram" => {
                 let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
                 detector.process(&entries);
-
                 let builder = OutputBuilder::new(entries);
                 builder.build_from_ngrams(&detector)
             }
@@ -128,7 +113,6 @@ pub fn process_text(
         }
     };
 
-    // Format output based on requested format
     match format {
         "json" => serde_json::to_string_pretty(&output)
             .map_err(|e| format!("Failed to serialize output: {}", e)),
@@ -138,6 +122,19 @@ pub fn process_text(
         }
         _ => Err(format!("Unknown format: {}. Use 'json' or 'markdown'", format)),
     }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn process_text(
+    input: &str,
+    algorithm: &str,
+    threshold: f64,
+    ngram_size: usize,
+    outlier_threshold: f64,
+    format: &str,
+) -> Result<String, String> {
+    process(input, algorithm, threshold, ngram_size, outlier_threshold, format)
 }
 
 #[cfg(test)]

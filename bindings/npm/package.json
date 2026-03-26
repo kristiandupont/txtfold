@@ -1,0 +1,24 @@
+{
+  "name": "txtfold",
+  "version": "0.1.0",
+  "description": "Identifies patterns and outliers in large log files and structured data",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/",
+    "wasm/"
+  ],
+  "scripts": {
+    "build:wasm": "wasm-pack build ../../core --out-dir ../bindings/npm/wasm --target nodejs --no-pack --features wasm",
+    "build:ts": "tsc",
+    "gen-types": "bun ../../tools/gen-types.ts",
+    "build": "bun run build:wasm && bun run gen-types && bun run build:ts"
+  },
+  "keywords": ["logs", "analysis", "patterns", "summarization"],
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.0"
+  }
+}
