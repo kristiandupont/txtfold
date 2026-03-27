@@ -50,6 +50,8 @@ export interface AnalysisMetadata {
   reduction_ratio: number;
   input_file?: string | null;
   total_entries: number;
+  budget_lines?: number | null;
+  budget_applied?: boolean | null;
 }
 
 /** Summary statistics */
@@ -143,4 +145,6 @@ export interface ProcessOptions {
   ngramSize?: number;
   /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
   outlierThreshold?: number;
+  /** Maximum output lines. Most important groups shown first; output trimmed at limit. */
+  budgetLines?: number;
 }

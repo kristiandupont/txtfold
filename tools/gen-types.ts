@@ -139,6 +139,8 @@ function generateTS(): string {
     "  ngramSize?: number;",
     "  /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */",
     "  outlierThreshold?: number;",
+    "  /** Maximum output lines. Most important groups shown first; output trimmed at limit. */",
+    "  budgetLines?: number;",
     "}",
     "",
   );

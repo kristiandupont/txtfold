@@ -101,6 +101,12 @@ pub struct AnalysisMetadata {
     pub algorithm: String,
     /// Reduction ratio (output size / input size)
     pub reduction_ratio: f64,
+    /// Budget in output lines requested by the caller (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_lines: Option<usize>,
+    /// Whether the budget was reached and output was trimmed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_applied: Option<bool>,
 }
 
 /// Summary statistics
@@ -205,10 +211,24 @@ pub struct PathPatternOutput {
     pub sample_values: HashMap<String, Vec<String>>,
 }
 
+// Approximate markdown line costs used for budget enforcement.
+// These are intentionally conservative estimates — the goal is a reliable upper
+// bound so the output stays within the caller's context window, not pixel-perfect
+// line counting.
+const FIXED_OVERHEAD_LINES: usize = 20; // title + metadata block + summary table
+const SECTION_HEADER_LINES: usize = 2; // "## Section\n\n"
+const LINES_PER_GROUP: usize = 15; // header + pattern + line ranges + 1 sample
+const LINES_PER_SCHEMA: usize = 12; // header + schema block + sample values
+const LINES_PER_PATTERN: usize = 12; // header + schema + paths + sample values
+const LINES_PER_OUTLIER: usize = 9; // header + reason/score + content block
+const LINES_PER_SINGLETON: usize = 1; // single bullet point
+const NGRAM_BASELINE_LINES: usize = 15; // baseline description + features + threshold
+
 /// Builder for creating AnalysisOutput from extraction results
 pub struct OutputBuilder {
     entries: Vec<Entry>,
     input_file: Option<String>,
+    budget_lines: Option<usize>,
 }
 
 impl OutputBuilder {
@@ -217,6 +237,7 @@ impl OutputBuilder {
         OutputBuilder {
             entries,
             input_file: None,
+            budget_lines: None,
         }
     }
 
@@ -224,6 +245,56 @@ impl OutputBuilder {
     pub fn with_input_file(mut self, filename: String) -> Self {
         self.input_file = Some(filename);
         self
+    }
+
+    /// Set the output budget in lines. The builder will greedily include the
+    /// most important results (highest-count groups first) until the budget is
+    /// exhausted, then stop. Results are never reordered — only the tail is
+    /// trimmed.
+    pub fn with_budget(mut self, budget: usize) -> Self {
+        self.budget_lines = Some(budget);
+        self
+    }
+
+    /// Given a budget in lines and the fixed overhead already consumed, return
+    /// how many items of `cost_per_item` lines each fit in the remaining space.
+    fn budget_capacity(budget: usize, already_used: usize, cost_per_item: usize) -> usize {
+        if cost_per_item == 0 {
+            return usize::MAX;
+        }
+        budget.saturating_sub(already_used) / cost_per_item
+    }
+
+    /// Apply budget to a `Grouped` result (template / clustering).
+    ///
+    /// Fills groups first (highest-count first, already sorted), then outliers
+    /// with whatever budget remains. Returns `(groups, outliers, budget_applied)`.
+    fn apply_grouped_budget(
+        &self,
+        mut groups: Vec<GroupOutput>,
+        mut outliers: Vec<OutlierOutput>,
+    ) -> (Vec<GroupOutput>, Vec<OutlierOutput>, Option<bool>) {
+        let Some(budget) = self.budget_lines else {
+            return (groups, outliers, None);
+        };
+
+        // Fixed: title + metadata + summary + "## Pattern Groups" header
+        let fixed = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES;
+
+        let group_cap = Self::budget_capacity(budget, fixed, LINES_PER_GROUP);
+        let groups_trimmed = group_cap < groups.len();
+        groups.truncate(group_cap);
+
+        // Remaining budget after groups: account for outlier section header
+        let used_by_groups = fixed + groups.len() * LINES_PER_GROUP;
+        let outlier_fixed = SECTION_HEADER_LINES + 1; // section header + intro line
+        let outlier_cap =
+            Self::budget_capacity(budget, used_by_groups + outlier_fixed, LINES_PER_OUTLIER);
+        let outliers_trimmed = outlier_cap < outliers.len();
+        outliers.truncate(outlier_cap);
+
+        let applied = groups_trimmed || outliers_trimmed;
+        (groups, outliers, Some(applied))
     }
 
     /// Build the output from a template extractor (backwards compatible alias)
@@ -273,16 +344,25 @@ impl OutputBuilder {
         // Calculate reduction ratio
         let reduction_ratio = self.calculate_reduction_ratio(&group_outputs);
 
+        // Summary reflects full analysis (pre-budget)
+        let total_outliers = outliers.len();
+
+        // Apply budget: greedily include groups then outliers
+        let (group_outputs, outliers, budget_applied) =
+            self.apply_grouped_budget(group_outputs, outliers);
+
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "template_extraction".to_string(),
                 reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
             },
             summary: AnalysisSummary {
                 unique_patterns,
-                outliers: outliers.len(),
+                outliers: total_outliers,
                 largest_cluster,
             },
             results: AlgorithmResults::Grouped {
@@ -369,16 +449,34 @@ impl OutputBuilder {
             0.0
         };
 
+        // Summary reflects full analysis (pre-budget)
+        let total_outliers = outliers.len();
+
+        // Apply budget: baseline is fixed, outliers fill remaining space
+        let (outliers, budget_applied) = if let Some(budget) = self.budget_lines {
+            let used = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES + NGRAM_BASELINE_LINES
+                + SECTION_HEADER_LINES + 1; // "+1" for the intro line
+            let cap = Self::budget_capacity(budget, used, LINES_PER_OUTLIER);
+            let trimmed = cap < outliers.len();
+            let mut o = outliers;
+            o.truncate(cap);
+            (o, if trimmed { Some(true) } else { Some(false) })
+        } else {
+            (outliers, None)
+        };
+
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "ngram_outlier_detection".to_string(),
                 reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
             },
             summary: AnalysisSummary {
                 unique_patterns: 0, // N-gram doesn't produce discrete patterns
-                outliers: outliers.len(),
+                outliers: total_outliers,
                 largest_cluster: normal_count,
             },
             results: AlgorithmResults::OutlierFocused { baseline, outliers },
@@ -458,16 +556,25 @@ impl OutputBuilder {
         // Calculate reduction ratio
         let reduction_ratio = self.calculate_reduction_ratio(&group_outputs);
 
+        // Summary reflects full analysis (pre-budget)
+        let total_outliers = outliers.len();
+
+        // Apply budget
+        let (group_outputs, outliers, budget_applied) =
+            self.apply_grouped_budget(group_outputs, outliers);
+
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "edit_distance_clustering".to_string(),
                 reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
             },
             summary: AnalysisSummary {
                 unique_patterns,
-                outliers: outliers.len(),
+                outliers: total_outliers,
                 largest_cluster,
             },
             results: AlgorithmResults::Grouped {
@@ -753,6 +860,29 @@ impl OutputBuilder {
 
         let unique_patterns = pattern_outputs.len();
         let largest_cluster = pattern_outputs.iter().map(|p| p.count).max().unwrap_or(0);
+        // Summary reflects full analysis (pre-budget)
+        let total_singletons = singleton_outputs.len();
+
+        // Apply budget: patterns first, singletons fill remaining space
+        let (pattern_outputs, singleton_outputs, budget_applied) =
+            if let Some(budget) = self.budget_lines {
+                let fixed = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES;
+                let pat_cap = Self::budget_capacity(budget, fixed, LINES_PER_PATTERN);
+                let pats_trimmed = pat_cap < pattern_outputs.len();
+                let mut pats = pattern_outputs;
+                pats.truncate(pat_cap);
+
+                let used = fixed + pats.len() * LINES_PER_PATTERN + SECTION_HEADER_LINES + 2;
+                let sing_cap = Self::budget_capacity(budget, used, LINES_PER_SINGLETON);
+                let sings_trimmed = sing_cap < singleton_outputs.len();
+                let mut sings = singleton_outputs;
+                sings.truncate(sing_cap);
+
+                let applied = pats_trimmed || sings_trimmed;
+                (pats, sings, Some(applied))
+            } else {
+                (pattern_outputs, singleton_outputs, None)
+            };
 
         AnalysisOutput {
             metadata: AnalysisMetadata {
@@ -760,10 +890,12 @@ impl OutputBuilder {
                 total_entries,
                 algorithm: "subtree".to_string(),
                 reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
             },
             summary: AnalysisSummary {
                 unique_patterns,
-                outliers: singleton_outputs.len(),
+                outliers: total_singletons,
                 largest_cluster,
             },
             results: AlgorithmResults::PathGrouped {
@@ -891,21 +1023,44 @@ impl OutputBuilder {
             0.0
         };
 
+        // Summary reflects full analysis (pre-budget)
+        let total_unique_schemas = schema_outputs.len();
+        let total_outliers = outliers.len();
+        let schema_largest = schema_outputs.iter().map(|s| s.count).max().unwrap_or(0);
+
+        // Apply budget: schemas first, outliers fill remaining space
+        let (schema_outputs, outliers, budget_applied) = if let Some(budget) = self.budget_lines {
+            let fixed = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES;
+            let schema_cap = Self::budget_capacity(budget, fixed, LINES_PER_SCHEMA);
+            let schemas_trimmed = schema_cap < schema_outputs.len();
+            let mut schemas = schema_outputs;
+            schemas.truncate(schema_cap);
+
+            let used = fixed + schemas.len() * LINES_PER_SCHEMA + SECTION_HEADER_LINES + 1;
+            let outlier_cap = Self::budget_capacity(budget, used, LINES_PER_OUTLIER);
+            let outliers_trimmed = outlier_cap < outliers.len();
+            let mut o = outliers;
+            o.truncate(outlier_cap);
+
+            let applied = schemas_trimmed || outliers_trimmed;
+            (schemas, o, Some(applied))
+        } else {
+            (schema_outputs, outliers, None)
+        };
+
         AnalysisOutput {
             metadata: AnalysisMetadata {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: "schema_clustering".to_string(),
                 reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
             },
             summary: AnalysisSummary {
-                unique_patterns: schema_outputs.len(),
-                outliers: outliers.len(),
-                largest_cluster: schema_outputs
-                    .iter()
-                    .map(|s| s.count)
-                    .max()
-                    .unwrap_or(0),
+                unique_patterns: total_unique_schemas,
+                outliers: total_outliers,
+                largest_cluster: schema_largest,
             },
             results: AlgorithmResults::SchemaGrouped {
                 schemas: schema_outputs,
@@ -1094,5 +1249,163 @@ mod tests {
         } else {
             panic!("Expected Grouped results");
         }
+    }
+
+    // --- Budget tests ---------------------------------------------------------
+
+    /// Build entries that produce `n` distinct template groups (2 entries each).
+    fn make_n_groups(n: usize) -> Vec<Entry> {
+        let mut entries = Vec::new();
+        for g in 0..n {
+            let msg = format!("GroupKind{} stable message text", g);
+            entries.push(Entry::from_line(msg.clone(), g * 2 + 1));
+            entries.push(Entry::from_line(msg, g * 2 + 2));
+        }
+        entries
+    }
+
+    #[test]
+    fn test_budget_no_budget_fields_absent() {
+        // Without a budget the metadata fields should be absent (skip_serializing_if).
+        let entries = make_n_groups(2);
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        let output = OutputBuilder::new(entries).build_from_templates(&extractor);
+
+        assert!(output.metadata.budget_lines.is_none());
+        assert!(output.metadata.budget_applied.is_none());
+
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("budget_lines"));
+        assert!(!json.contains("budget_applied"));
+    }
+
+    #[test]
+    fn test_budget_trims_groups() {
+        // Budget = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES + 1 * LINES_PER_GROUP
+        //        = 20 + 2 + 15 = 37  →  only 1 of 3 groups fits.
+        let entries = make_n_groups(3);
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        let output = OutputBuilder::new(entries)
+            .with_budget(37)
+            .build_from_templates(&extractor);
+
+        assert_eq!(output.metadata.budget_lines, Some(37));
+        assert_eq!(output.metadata.budget_applied, Some(true));
+
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 1, "only 1 group should fit in budget");
+        } else {
+            panic!("expected Grouped results");
+        }
+    }
+
+    #[test]
+    fn test_budget_within_limit() {
+        // Budget large enough for all groups → budget_applied = false.
+        let entries = make_n_groups(3);
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        // 20 + 2 + 3 * 15 = 67 fits all 3 groups exactly.
+        let output = OutputBuilder::new(entries)
+            .with_budget(200)
+            .build_from_templates(&extractor);
+
+        assert_eq!(output.metadata.budget_applied, Some(false));
+
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 3);
+        } else {
+            panic!("expected Grouped results");
+        }
+    }
+
+    #[test]
+    fn test_budget_summary_preserves_pre_budget_counts() {
+        // summary.unique_patterns and summary.outliers must reflect the full
+        // analysis, not the trimmed output, so callers know how much was elided.
+        let entries = make_n_groups(3);
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        let output = OutputBuilder::new(entries)
+            .with_budget(37) // fits only 1 group
+            .build_from_templates(&extractor);
+
+        // Summary should still report all 3 groups found
+        assert_eq!(output.summary.unique_patterns, 3);
+
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 1, "results trimmed to 1");
+        } else {
+            panic!("expected Grouped results");
+        }
+    }
+
+    #[test]
+    fn test_budget_most_common_group_retained() {
+        // Groups are sorted highest-count-first, so the budget should always
+        // retain the most common patterns.
+        let mut entries = Vec::new();
+        // Group A: 5 occurrences (most common)
+        for i in 1..=5 {
+            entries.push(Entry::from_line("AlphaKind common message".to_string(), i));
+        }
+        // Group B: 2 occurrences
+        for i in 6..=7 {
+            entries.push(Entry::from_line("BetaKind rare message".to_string(), i));
+        }
+
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        // Budget fits exactly 1 group
+        let output = OutputBuilder::new(entries)
+            .with_budget(37)
+            .build_from_templates(&extractor);
+
+        if let AlgorithmResults::Grouped { groups, .. } = &output.results {
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups[0].count, 5, "highest-count group should be retained");
+        } else {
+            panic!("expected Grouped results");
+        }
+    }
+
+    #[test]
+    fn test_budget_ngram_trims_outliers() {
+        use crate::ngram::NgramOutlierDetector;
+
+        // Many identical "normal" entries plus a few outliers.
+        let mut entries: Vec<Entry> = (1..=20)
+            .map(|i| Entry::from_line("routine log message processed".to_string(), i))
+            .collect();
+        // Add outliers with completely different vocabulary.
+        entries.push(Entry::from_line("xyzzy quux frobnicate wibble".to_string(), 21));
+        entries.push(Entry::from_line("grault garply corge thud".to_string(), 22));
+
+        let mut detector = NgramOutlierDetector::new(2, 0.0);
+        detector.process(&entries);
+
+        // Budget = fixed overhead only: no room for outliers.
+        // used = FIXED(20) + SECTION_HEADER(2) + BASELINE(15) + SECTION_HEADER(2) + 1 = 40
+        let output = OutputBuilder::new(entries)
+            .with_budget(40)
+            .build_from_ngrams(&detector);
+
+        assert_eq!(output.metadata.budget_applied, Some(true));
+
+        if let AlgorithmResults::OutlierFocused { outliers, .. } = &output.results {
+            assert_eq!(outliers.len(), 0, "no outliers should fit in a budget of 40");
+        } else {
+            panic!("expected OutlierFocused results");
+        }
+
+        // But summary.outliers should still reflect the pre-budget count
+        assert!(output.summary.outliers > 0, "summary should report pre-budget outlier count");
     }
 }

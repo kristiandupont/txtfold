@@ -35,6 +35,7 @@ pub fn wasm_version() -> String {
 /// Run an analysis and return formatted output.
 ///
 /// - `algorithm`: `"auto"`, `"template"`, `"clustering"`, `"ngram"`, `"schema"`, `"subtree"`
+/// - `budget`: maximum output lines (`None` = unlimited)
 /// - `format`: `"json"` or `"markdown"`
 pub fn process(
     input: &str,
@@ -42,6 +43,7 @@ pub fn process(
     threshold: f64,
     ngram_size: usize,
     outlier_threshold: f64,
+    budget: Option<usize>,
     format: &str,
 ) -> Result<String, String> {
     use crate::clustering::EditDistanceClusterer;
@@ -74,7 +76,8 @@ pub fn process(
         }
         let mut clusterer = SchemaClusterer::new(threshold, 1);
         clusterer.process(&values);
-        let builder = OutputBuilder::new(vec![]);
+        let mut builder = OutputBuilder::new(vec![]);
+        if let Some(b) = budget { builder = builder.with_budget(b); }
         builder.build_from_schemas(&clusterer, &values)
     } else if algo == "subtree" {
         use crate::subtree::SubtreeFinder;
@@ -82,7 +85,8 @@ pub fn process(
             .map_err(|e| format!("Failed to parse JSON: {}", e))?;
         let mut finder = SubtreeFinder::new(threshold);
         finder.process(&root);
-        let builder = OutputBuilder::new(vec![]);
+        let mut builder = OutputBuilder::new(vec![]);
+        if let Some(b) = budget { builder = builder.with_budget(b); }
         builder.build_from_subtree(&finder, &root)
     } else {
         let parser = EntryParser::new(EntryMode::Auto);
@@ -94,19 +98,22 @@ pub fn process(
             "template" => {
                 let mut extractor = TemplateExtractor::new();
                 extractor.process(&entries);
-                let builder = OutputBuilder::new(entries);
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_templates(&extractor)
             }
             "clustering" => {
                 let mut clusterer = EditDistanceClusterer::new(threshold);
                 clusterer.process(&entries);
-                let builder = OutputBuilder::new(entries);
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_clusters(&clusterer)
             }
             "ngram" => {
                 let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
                 detector.process(&entries);
-                let builder = OutputBuilder::new(entries);
+                let mut builder = OutputBuilder::new(entries);
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_ngrams(&detector)
             }
             _ => return Err(format!("Unknown algorithm: {}", algo)),
@@ -132,9 +139,10 @@ pub fn process_text(
     threshold: f64,
     ngram_size: usize,
     outlier_threshold: f64,
+    budget: Option<usize>,
     format: &str,
 ) -> Result<String, String> {
-    process(input, algorithm, threshold, ngram_size, outlier_threshold, format)
+    process(input, algorithm, threshold, ngram_size, outlier_threshold, budget, format)
 }
 
 #[cfg(test)]

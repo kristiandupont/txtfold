@@ -55,6 +55,8 @@ class _AnalysisMetadataRequired(TypedDict):
 
 class AnalysisMetadata(_AnalysisMetadataRequired, total=False):
     input_file: str | None
+    budget_lines: int | None
+    budget_applied: bool | None
 
 
 # Summary statistics

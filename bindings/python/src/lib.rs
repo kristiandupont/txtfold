@@ -11,18 +11,20 @@ use pyo3::prelude::*;
 ///     threshold: Similarity threshold for clustering/schema algorithms (0.0–1.0).
 ///     ngram_size: N-gram size for the ngram algorithm.
 ///     outlier_threshold: Outlier threshold for ngram (0.0 = auto-detect).
+///     budget: Maximum output lines. Most important groups shown first; output trimmed at limit.
 ///     format: Output format — "json" or "markdown".
 #[pyfunction]
-#[pyo3(signature = (input, algorithm="auto", threshold=0.8, ngram_size=2, outlier_threshold=0.0, format="json"))]
+#[pyo3(signature = (input, algorithm="auto", threshold=0.8, ngram_size=2, outlier_threshold=0.0, budget=None, format="json"))]
 fn process(
     input: &str,
     algorithm: &str,
     threshold: f64,
     ngram_size: usize,
     outlier_threshold: f64,
+    budget: Option<usize>,
     format: &str,
 ) -> PyResult<String> {
-    txtfold::process(input, algorithm, threshold, ngram_size, outlier_threshold, format)
+    txtfold::process(input, algorithm, threshold, ngram_size, outlier_threshold, budget, format)
         .map_err(PyValueError::new_err)
 }
 

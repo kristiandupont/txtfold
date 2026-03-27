@@ -31,8 +31,9 @@ function callCore(input: string, options: ProcessOptions, format: string): strin
     threshold = 0.8,
     ngramSize = 2,
     outlierThreshold = 0.0,
+    budgetLines = undefined,
   } = options;
-  return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, format) as string;
+  return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
 }
 
 /**

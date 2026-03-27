@@ -41,6 +41,13 @@ impl MarkdownFormatter {
             "- **Reduction ratio**: {:.2}%\n",
             output.metadata.reduction_ratio * 100.0
         ));
+        if let Some(budget) = output.metadata.budget_lines {
+            let status = match output.metadata.budget_applied {
+                Some(true) => " (budget reached — output trimmed)",
+                _ => " (within budget)",
+            };
+            md.push_str(&format!("- **Budget**: {} lines{}\n", budget, status));
+        }
         md.push_str("\n");
 
         // Summary section
@@ -522,6 +529,57 @@ mod tests {
         // Should not crash without input file
         assert!(markdown.contains("# txtfold Analysis Report"));
         assert!(markdown.contains("Total entries"));
+    }
+
+    #[test]
+    fn test_budget_applied_shown_in_markdown() {
+        let entries = vec![
+            Entry::from_line("Alpha message kind".to_string(), 1),
+            Entry::from_line("Alpha message kind".to_string(), 2),
+            Entry::from_line("Alpha message kind".to_string(), 3),
+            Entry::from_line("Beta message kind".to_string(), 4),
+            Entry::from_line("Beta message kind".to_string(), 5),
+        ];
+
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        // Budget tight enough to trim output
+        let output = OutputBuilder::new(entries).with_budget(37).build(&extractor);
+        let markdown = MarkdownFormatter::format(&output);
+
+        assert!(markdown.contains("**Budget**: 37 lines"));
+        assert!(markdown.contains("budget reached — output trimmed"));
+    }
+
+    #[test]
+    fn test_budget_within_limit_shown_in_markdown() {
+        let entries = vec![
+            Entry::from_line("Only one group here".to_string(), 1),
+            Entry::from_line("Only one group here".to_string(), 2),
+        ];
+
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        let output = OutputBuilder::new(entries).with_budget(200).build(&extractor);
+        let markdown = MarkdownFormatter::format(&output);
+
+        assert!(markdown.contains("**Budget**: 200 lines"));
+        assert!(markdown.contains("within budget"));
+    }
+
+    #[test]
+    fn test_no_budget_line_without_budget() {
+        let entries = vec![Entry::from_line("Message".to_string(), 1)];
+
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+
+        let output = OutputBuilder::new(entries).build(&extractor);
+        let markdown = MarkdownFormatter::format(&output);
+
+        assert!(!markdown.contains("Budget"));
     }
 }
 

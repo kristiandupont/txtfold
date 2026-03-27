@@ -135,6 +135,14 @@ fn build_cli() -> Command {
                 .default_value("auto")
                 .value_parser(PossibleValuesParser::new(algo_values))
                 .help(leak_str(algo_help)),
+        )
+        .arg(
+            Arg::new("budget")
+                .short('b')
+                .long("budget")
+                .value_name("LINES")
+                .value_parser(value_parser!(usize))
+                .help("Maximum output lines. The most important groups are shown first; output is trimmed when the budget is reached."),
         );
 
     for arg in param_args {
@@ -151,6 +159,7 @@ fn main() -> Result<()> {
     let algorithm = matches.get_one::<String>("algorithm").unwrap().as_str();
     let input_format_arg = matches.get_one::<String>("input-format").unwrap().as_str();
     let entry_mode_arg = matches.get_one::<String>("entry-mode").unwrap().as_str();
+    let budget: Option<usize> = matches.get_one::<usize>("budget").copied();
 
     // Read input (file or stdin)
     let (content, filename) = if let Some(path_str) = matches.get_one::<String>("input") {
@@ -213,9 +222,8 @@ fn main() -> Result<()> {
         clusterer.process(&values);
 
         let mut builder = OutputBuilder::new(vec![]);
-        if let Some(name) = filename {
-            builder = builder.with_input_file(name);
-        }
+        if let Some(name) = filename { builder = builder.with_input_file(name); }
+        if let Some(b) = budget { builder = builder.with_budget(b); }
         builder.build_from_schemas(&clusterer, &values)
     } else if algorithm == "subtree" {
         let root: serde_json::Value = serde_json::from_str(&content)
@@ -226,9 +234,8 @@ fn main() -> Result<()> {
         finder.process(&root);
 
         let mut builder = OutputBuilder::new(vec![]);
-        if let Some(name) = filename {
-            builder = builder.with_input_file(name);
-        }
+        if let Some(name) = filename { builder = builder.with_input_file(name); }
+        if let Some(b) = budget { builder = builder.with_budget(b); }
         builder.build_from_subtree(&finder, &root)
     } else {
         let entry_mode = match entry_mode_arg {
@@ -249,9 +256,8 @@ fn main() -> Result<()> {
                 let mut extractor = TemplateExtractor::new();
                 extractor.process(&entries);
                 let mut builder = OutputBuilder::new(entries);
-                if let Some(name) = filename {
-                    builder = builder.with_input_file(name);
-                }
+                if let Some(name) = filename { builder = builder.with_input_file(name); }
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_templates(&extractor)
             }
             "clustering" => {
@@ -259,9 +265,8 @@ fn main() -> Result<()> {
                 let mut clusterer = EditDistanceClusterer::new(threshold);
                 clusterer.process(&entries);
                 let mut builder = OutputBuilder::new(entries);
-                if let Some(name) = filename {
-                    builder = builder.with_input_file(name);
-                }
+                if let Some(name) = filename { builder = builder.with_input_file(name); }
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_clusters(&clusterer)
             }
             "ngram" => {
@@ -270,9 +275,8 @@ fn main() -> Result<()> {
                 let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
                 detector.process(&entries);
                 let mut builder = OutputBuilder::new(entries);
-                if let Some(name) = filename {
-                    builder = builder.with_input_file(name);
-                }
+                if let Some(name) = filename { builder = builder.with_input_file(name); }
+                if let Some(b) = budget { builder = builder.with_budget(b); }
                 builder.build_from_ngrams(&detector)
             }
             other => anyhow::bail!("Unknown algorithm: {other}"),
