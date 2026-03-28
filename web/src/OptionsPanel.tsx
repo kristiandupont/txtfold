@@ -210,6 +210,26 @@ export function* OptionsPanel(
           </div>
         )}
 
+        {/* ── Budget ── */}
+        <div class="flex flex-col gap-2 border-t border-gray-200 pt-4">
+          <SectionHeader title="Budget" />
+          <input
+            type="number"
+            min="1"
+            step="10"
+            placeholder="unlimited"
+            value={state.budget ?? ""}
+            class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+            oninput={(e: Event) => {
+              const v = (e.target as HTMLInputElement).value;
+              setState({ budget: v === "" ? null : Math.max(1, parseInt(v, 10)) });
+            }}
+          />
+          <p class="text-xs text-gray-400">
+            Maximum output lines. Most important groups shown first.
+          </p>
+        </div>
+
         {/* ── Output format ── */}
         <div class="flex flex-col gap-2 border-t border-gray-200 pt-4">
           <SectionHeader title="Output Format" />

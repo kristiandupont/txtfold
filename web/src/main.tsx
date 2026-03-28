@@ -29,6 +29,7 @@ function* App(this: Context) {
         state.params["threshold"] ?? 0.8,
         Math.round(state.params["ngram_size"] ?? 2),
         state.params["outlier_threshold"] ?? 0.0,
+        state.budget ?? undefined,
         state.outputFormat,
       );
       setState({ output: result, processing: false });

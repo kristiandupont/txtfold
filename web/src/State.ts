@@ -5,6 +5,7 @@ export interface State {
   subOptions: Record<string, string>;
   algorithm: string;
   params: Record<string, number>;
+  budget: number | null;
   outputFormat: string;
   input: string;
   output: string;
@@ -17,6 +18,7 @@ export const initialState: State = {
   subOptions: {},
   algorithm: "auto",
   params: {},
+  budget: null,
   outputFormat: schema.formatters[0].name,
   input: "",
   output: "",

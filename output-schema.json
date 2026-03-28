@@ -166,10 +166,21 @@
           "description": "Algorithm used",
           "type": "string"
         },
-        "reduction_ratio": {
-          "description": "Reduction ratio (output size / input size)",
-          "type": "number",
-          "format": "double"
+        "budget_applied": {
+          "description": "Whether the budget was reached and output was trimmed",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "budget_lines": {
+          "description": "Budget in output lines requested by the caller (if any)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0.0
         },
         "input_file": {
           "description": "Input file name (optional)",
@@ -177,6 +188,11 @@
             "string",
             "null"
           ]
+        },
+        "reduction_ratio": {
+          "description": "Reduction ratio (output size / input size)",
+          "type": "number",
+          "format": "double"
         },
         "total_entries": {
           "description": "Total number of entries processed",
