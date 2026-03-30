@@ -33,8 +33,10 @@ export type AlgorithmResults = GroupedResults | OutlierFocusedResults | SchemaGr
 /** Metadata about the analysis run */
 export interface AnalysisMetadata {
     algorithm: string;
-    reduction_ratio: number;
+    budget_applied?: boolean | null;
+    budget_lines?: number | null;
     input_file?: string | null;
+    reduction_ratio: number;
     total_entries: number;
 }
 /** Summary statistics */
@@ -119,4 +121,6 @@ export interface ProcessOptions {
     ngramSize?: number;
     /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
     outlierThreshold?: number;
+    /** Maximum output lines. Most important groups shown first; output trimmed at limit. */
+    budgetLines?: number;
 }

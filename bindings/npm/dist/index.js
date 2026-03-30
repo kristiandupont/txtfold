@@ -3,8 +3,8 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { process_text } = require("../wasm/txtfold.js");
 function callCore(input, options, format) {
-    const { algorithm = "auto", threshold = 0.8, ngramSize = 2, outlierThreshold = 0.0, } = options;
-    return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, format);
+    const { algorithm = "auto", threshold = 0.8, ngramSize = 2, outlierThreshold = 0.0, budgetLines = undefined, } = options;
+    return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format);
 }
 /**
  * Analyse text or JSON input and return structured results.

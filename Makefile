@@ -1,20 +1,62 @@
-.PHONY: all build schema web test clean
+.PHONY: all build install schema types npm python web dev test clean
 
-# Build the release binary
+# --- Rust -------------------------------------------------------------------
+
+# Build the release binaries (CLI + tools)
 build:
 	cargo build --release
 
-# Regenerate schemas from the core library metadata
+# Install the CLI into the local Cargo bin path
+install:
+	cargo install --path cli
+
+# --- Schema & generated types -----------------------------------------------
+
+# Regenerate schema.json / output-schema.json from the compiled core metadata
 schema: build
 	./target/release/dump-schema web/schema.json output-schema.json
 
-# Build the web UI (schema must be up to date first)
-web: schema
-	cd web && npm run build
+# Generate TypeScript and Python type stubs from output-schema.json
+types: schema
+	bun tools/gen-types.ts
 
-# Run all tests
+# --- Language bindings ------------------------------------------------------
+
+# Build the npm package (both WASM targets + TypeScript)
+npm: types
+	cd bindings/npm && bun run build
+
+# Build and install the Python extension into the active environment
+python: types
+	cd bindings/python && maturin develop --release
+
+# --- Web --------------------------------------------------------------------
+
+# Production build of the web UI (requires npm package to be built first)
+web: npm
+	cd web && bun run build
+
+# Start the Vite dev server (uses whatever npm package is already built)
+dev:
+	cd web && bun run dev
+
+# Rebuild core → schema → types → npm package, then start the Vite dev server
+dev-web: npm
+	cd web && bun run dev
+
+# --- Tests ------------------------------------------------------------------
+
 test:
 	cargo test
+	cd bindings/npm && bun test
+	cd bindings/python && python -m pytest
+
+# --- Meta -------------------------------------------------------------------
+
+# Build everything
+all: web python
 
 clean:
 	cargo clean
+	rm -rf bindings/npm/dist bindings/npm/wasm bindings/npm/wasm-web
+	rm -rf web/dist

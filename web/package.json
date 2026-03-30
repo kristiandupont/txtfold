@@ -5,9 +5,8 @@
   "type": "module",
   "scripts": {
     "lint": "eslint",
-    "build:wasm": "cd ../core && wasm-pack build --target web --out-dir ../web/src/wasm --features wasm",
-    "dev": "bun run build:wasm && vite",
-    "build": "bun run build:wasm && tsc && vite build",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -22,6 +21,7 @@
     "@b9g/crank": "^0.7.8",
     "@tailwindcss/vite": "^4.2.2",
     "marked": "^17.0.5",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.2.2",
+    "txtfold": "file:../bindings/npm"
   }
 }

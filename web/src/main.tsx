@@ -3,7 +3,7 @@
 import "./style.css";
 import { renderer } from "@b9g/crank/dom";
 import type { Context } from "@b9g/crank";
-import { loadCore } from "./loadCore.js";
+import { processFormatted } from "./loadCore.js";
 import { initialState, type State } from "./State.js";
 import { OptionsPanel } from "./OptionsPanel.js";
 import { InputPanel } from "./InputPanel.js";
@@ -20,16 +20,15 @@ function* App(this: Context) {
   const processText = async () => {
     setState({ processing: true, error: "", output: "" });
     try {
-      const wasm = await loadCore();
-      // Map dynamic params back to the WASM positional API.
-      // Params not relevant to the selected algorithm use their defaults.
-      const result = wasm.process_text(
+      const result = await processFormatted(
         state.input,
-        state.algorithm,
-        state.params["threshold"] ?? 0.8,
-        Math.round(state.params["ngram_size"] ?? 2),
-        state.params["outlier_threshold"] ?? 0.0,
-        state.budget ?? undefined,
+        {
+          algorithm: state.algorithm,
+          threshold: state.params["threshold"] ?? 0.8,
+          ngramSize: Math.round(state.params["ngram_size"] ?? 2),
+          outlierThreshold: state.params["outlier_threshold"] ?? 0.0,
+          budgetLines: state.budget ?? undefined,
+        },
         state.outputFormat,
       );
       setState({ output: result, processing: false });

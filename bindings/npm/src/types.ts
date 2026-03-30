@@ -47,11 +47,11 @@ export type AlgorithmResults =
 /** Metadata about the analysis run */
 export interface AnalysisMetadata {
   algorithm: string;
-  reduction_ratio: number;
-  input_file?: string | null;
-  total_entries: number;
-  budget_lines?: number | null;
   budget_applied?: boolean | null;
+  budget_lines?: number | null;
+  input_file?: string | null;
+  reduction_ratio: number;
+  total_entries: number;
 }
 
 /** Summary statistics */
