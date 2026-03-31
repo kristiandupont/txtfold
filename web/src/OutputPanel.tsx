@@ -13,9 +13,8 @@ export function* OutputPanel(this: Context, { state }: { state: State }) {
   for ({ state } of this) {
     const isMarkdown = state.outputFormat === "markdown";
     yield (
-      <div class="flex flex-col h-full overflow-y-auto">
-        <div class="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 class="font-bold text-lg">Output</h2>
+      <div class="relative flex flex-1 flex-col h-full overflow-y-auto">
+        <div class="p-4 flex items-center justify-between absolute top-0 right-0">
           {isMarkdown && state.output && (
             <div class="flex text-xs rounded-full border border-gray-300 overflow-hidden">
               <button
@@ -33,7 +32,7 @@ export function* OutputPanel(this: Context, { state }: { state: State }) {
             </div>
           )}
         </div>
-        <div class="flex-1 p-4 overflow-auto">
+        <div class="flex-1 p-4 overflow-auto border-gray-200 border rounded">
           {state.error ? (
             <div class="p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
               <strong>Error:</strong> {state.error}

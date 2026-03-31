@@ -127,7 +127,7 @@ export function* OptionsPanel(
     );
 
     yield (
-      <div class="flex flex-col gap-5 p-4 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+      <div class="flex flex-col gap-5 p-4 bg-gray-50 rounded overflow-y-auto">
         {/* ── Input format ── */}
         <div class="flex flex-col gap-2">
           <SectionHeader title="Input Format" />
@@ -222,7 +222,9 @@ export function* OptionsPanel(
             class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
             oninput={(e: Event) => {
               const v = (e.target as HTMLInputElement).value;
-              setState({ budget: v === "" ? null : Math.max(1, parseInt(v, 10)) });
+              setState({
+                budget: v === "" ? null : Math.max(1, parseInt(v, 10)),
+              });
             }}
           />
           <p class="text-xs text-gray-400">

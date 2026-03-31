@@ -6,28 +6,16 @@ export function* InputPanel(
   {
     state,
     setState,
-    onProcess,
   }: {
     state: State;
     setState: (u: Partial<State>) => void;
-    onProcess: () => void;
   },
 ) {
-  for ({ state, onProcess, setState } of this) {
+  for ({ state, setState } of this) {
     yield (
-      <div class="flex flex-col h-full overflow-y-auto">
-        <div class="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 class="font-bold text-lg">Input</h2>
-          <button
-            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            disabled={state.processing || !state.input.trim()}
-            onclick={onProcess}
-          >
-            {state.processing ? "Processing…" : "Process"}
-          </button>
-        </div>
+      <div class="flex flex-1 flex-col h-full overflow-y-auto">
         <textarea
-          class="flex-1 p-4 font-mono text-sm resize-none focus:outline-none"
+          class="flex-1 p-4 font-mono text-xs rounded-sm bg-black text-green-200 resize-none focus:outline-none"
           placeholder="Paste your log entries or JSON data here…"
           value={state.input}
           oninput={(e: Event) =>
