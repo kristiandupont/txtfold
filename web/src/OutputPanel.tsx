@@ -13,7 +13,7 @@ export function* OutputPanel(this: Context, { state }: { state: State }) {
   for ({ state } of this) {
     const isMarkdown = state.outputFormat === "markdown";
     yield (
-      <div class="relative flex flex-1 flex-col h-full overflow-y-auto">
+      <div class="relative flex flex-1 flex-col h-full min-h-[79vh] max-h-[80vh] ">
         <div class="p-4 flex items-center justify-between absolute top-0 right-0">
           {isMarkdown && state.output && (
             <div class="flex text-xs rounded-full border border-gray-300 overflow-hidden">

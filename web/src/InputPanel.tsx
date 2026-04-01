@@ -13,7 +13,7 @@ export function* InputPanel(
 ) {
   for ({ state, setState } of this) {
     yield (
-      <div class="flex flex-1 flex-col h-full overflow-y-auto">
+      <div class="flex flex-1 flex-col h-full overflow-y-auto min-h-[80vh] max-h-[80vh] ">
         <textarea
           class="flex-1 p-4 font-mono text-xs rounded-sm bg-black text-green-200 resize-none focus:outline-none"
           placeholder="Paste your log entries or JSON data here…"
