@@ -127,7 +127,7 @@ export function* OptionsPanel(
     );
 
     yield (
-      <div class="flex flex-col gap-5 p-4 bg-gray-50 rounded overflow-y-auto">
+      <div class="flex flex-col gap-5 p-4 bg-gray-50 rounded overflow-y-auto min-h-[79vh] max-h-[80vh]">
         {/* ── Input format ── */}
         <div class="flex flex-col gap-2">
           <SectionHeader title="Input Format" />
