@@ -55,3 +55,12 @@ export function process(input: string, options: ProcessOptions = {}): AnalysisOu
 export function processMarkdown(input: string, options: ProcessOptions = {}): string {
   return callCore(input, options, "markdown");
 }
+
+/**
+ * Analyse text or JSON input and return a string in the requested format.
+ *
+ * @throws {Error} if the input cannot be processed.
+ */
+export function processFormatted(input: string, options: ProcessOptions = {}, format: string = "markdown"): string {
+  return callCore(input, options, format);
+}
