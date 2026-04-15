@@ -43,17 +43,21 @@ registry.rs    (ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS)
 ```
 Input (file or stdin)
   ↓
-Input Format Detection (auto) → Text | JSON Array | JSON Map
+Input Format (explicit: json | line | block)
+  — inferred from file extension for files (.json → json, else → line)
+  — required via --format flag for stdin
   ↓
-  ├─ Text → Entry Mode Detection (auto) → Single-line | Multi-line
-  │            ↓
-  │         Parser → Text Entries
+  ├─ line  → Parser → Text Entries (one per line)
   │            ↓
   │         Algorithm (auto) → template | clustering | ngram
   │
-  └─ JSON → Parser → JSON Values
+  ├─ block → Parser → Text Entries (multi-line; --entry-pattern or timestamp heuristic)
+  │            ↓
+  │         Algorithm (auto) → template | clustering | ngram
+  │
+  └─ json  → Parser → JSON Values (array or map — internal heuristic)
                ↓
-            Algorithm (auto) → schema
+            Algorithm (auto) → schema | subtree
   ↓
 Structured Output (JSON) — algorithm-specific result type
   ↓
@@ -62,13 +66,12 @@ Formatter → Markdown / JSON output
 
 ### Configuration Hierarchy
 
-Three levels of auto-detection, each overridable:
+Two levels of selection, each overridable:
 
-1. **Input Format** (`auto` → text / json-array / json-map)
-2. **Algorithm** (`auto` → template / clustering / ngram / schema, based on format)
-3. **Parameters** (threshold, entry mode, etc.)
+1. **Algorithm** (`auto` → template for line/block, schema for json)
+2. **Parameters** (threshold, ngram size, entry pattern, etc.)
 
-Beginners get "just works" behavior; power users can override at any level.
+Input format is always explicit — either declared via `--format` or inferred from the file extension. There is no content-based auto-detection.
 
 ## Algorithms
 

@@ -34,18 +34,18 @@ txtfold server.log
 Output defaults to Markdown. For machine-readable output:
 
 ```sh
-txtfold --format json server.log
+txtfold --output-format json server.log
 ```
 
-Pipe from stdin:
+Pipe from stdin (format must be declared explicitly):
 
 ```sh
-cat server.log | txtfold
+cat server.log | txtfold --format line
 ```
 
 ## Algorithms
 
-txtfold automatically selects an algorithm based on your input. You can override with `--algorithm`.
+txtfold selects a default algorithm based on the input format (`template` for line/block, `schema` for json). Override with `--algorithm`.
 
 | Algorithm    | Best for                                              | Typical reduction    |
 | ------------ | ----------------------------------------------------- | -------------------- |
@@ -88,14 +88,20 @@ Useful for API responses, config files, or exports where the same shape recurs a
 --depth 1                # Schema nesting depth for --algorithm schema (0 = flat)
 --ngram-size 2           # N-gram window size
 --outlier-threshold 0.0  # N-gram cutoff (0.0 = auto)
---entry-mode multiline   # Force multi-line entry parsing (for stack traces)
+--entry-pattern <regex>  # Regex marking the start of each entry (block format)
 ```
 
 ## Input formats
 
-txtfold auto-detects whether input is plain text, a JSON array, or a JSON map. Override with `--input-format`.
+Declare the format explicitly with `--format`:
 
-Multi-line entries (stack traces, structured log blocks) are detected automatically via timestamp boundary detection.
+| Format  | Use for                                              | Entry splitting                                      |
+| ------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| `line`  | Plain text logs, CSV                                 | One entry per line                                   |
+| `block` | Stack traces, multi-line log blocks, Terraform plans | `--entry-pattern <regex>`, or timestamp heuristic    |
+| `json`  | JSON arrays or maps                                  | One array element / map value per entry              |
+
+For files, the format is inferred from the extension (`.json` → json, anything else → line). For stdin, `--format` is required.
 
 ## Output formats
 
