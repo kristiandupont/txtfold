@@ -169,14 +169,17 @@ export interface ThresholdInfo {
 export interface ProcessOptions {
   /** Input format: "json", "line", or "block". Required. */
   inputFormat: string;
-  /** Algorithm to use. Default: "auto" (auto-detect). */
-  algorithm?: string;
-  /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */
-  threshold?: number;
-  /** N-gram size for the ngram algorithm. Default: 2. */
+  /** Pipeline expression selecting the algorithm and pre-processing steps.
+   *  Examples: "outliers", "similar(0.8) | top(20)",
+   *  ".diagnostics[] | del(.sourceCode) | group_by(.category)".
+   *  If omitted, defaults to summarize (json→subtree, line/block→template). */
+  pipeline?: string;
+  /** N-gram size for the 'outliers' verb. Default: 2. */
   ngramSize?: number;
-  /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
+  /** Outlier score threshold for the 'outliers' verb (0.0 = auto-detect). Default: 0.0. */
   outlierThreshold?: number;
+  /** Nesting depth for the 'subtree' verb. Default: 1. */
+  depth?: number;
   /** Maximum output lines. Most important groups shown first; output trimmed at limit. */
   budgetLines?: number;
 }
@@ -191,12 +194,12 @@ export interface DiscoverOptions {
 export interface CostPreviewOptions {
   /** Input format: "json", "line", or "block". Required. */
   inputFormat: string;
-  /** Algorithm to use. Default: "auto" (auto-detect). */
-  algorithm?: string;
-  /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */
-  threshold?: number;
-  /** N-gram size for the ngram algorithm. Default: 2. */
+  /** Pipeline expression (same syntax as ProcessOptions.pipeline). */
+  pipeline?: string;
+  /** N-gram size for the 'outliers' verb. Default: 2. */
   ngramSize?: number;
-  /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
+  /** Outlier score threshold for the 'outliers' verb (0.0 = auto-detect). Default: 0.0. */
   outlierThreshold?: number;
+  /** Nesting depth for the 'subtree' verb. Default: 1. */
+  depth?: number;
 }

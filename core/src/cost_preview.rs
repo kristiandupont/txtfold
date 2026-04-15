@@ -252,16 +252,12 @@ mod tests {
             {"category": "warning", "sourceCode": "another_long_source_code_string_that_adds_to_the_bulk_of_the_output_tokens"},
             {"category": "error", "sourceCode": "yet_another_long_code_snippet_that_drives_up_the_token_count_significantly"}
         ]"#;
-        let analysis = crate::process(
-            input,
-            crate::InputFormat::Json,
-            "schema",
-            0.5,
-            3,
-            0.1,
-            None,
-            "json",
-        );
+        let options = crate::ProcessOptions {
+            input_format: crate::InputFormat::Json,
+            pipeline_expr: Some("schemas".to_string()),
+            ..Default::default()
+        };
+        let analysis = crate::process(input, &options, "json");
         assert!(analysis.is_ok());
         // Parse and preview
         let output: AnalysisOutput =
@@ -290,16 +286,12 @@ mod tests {
             {"x": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "y": "b"},
             {"x": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "y": "b"}
         ]"#;
-        let analysis = crate::process(
-            input,
-            crate::InputFormat::Json,
-            "schema",
-            0.5,
-            3,
-            0.1,
-            None,
-            "json",
-        );
+        let options = crate::ProcessOptions {
+            input_format: crate::InputFormat::Json,
+            pipeline_expr: Some("schemas".to_string()),
+            ..Default::default()
+        };
+        let analysis = crate::process(input, &options, "json");
         let output: AnalysisOutput =
             serde_json::from_str(&analysis.unwrap()).unwrap();
         let preview = cost_preview(&output);

@@ -127,7 +127,7 @@ fn test_app_preset_template() {
 #[test]
 fn test_noisy_preset_clustering() {
     let data = generate_sample("noisy", 200, 42);
-    let output = run_txtfold(&data, &["--format", "line", "--algorithm", "clustering"]);
+    let output = run_txtfold(&data, &["similar(0.8)", "--format", "line"]);
 
     assert_coarse_invariants(&output, "noisy/clustering");
     assert_eq!(output["metadata"]["algorithm"], "edit_distance_clustering");
@@ -161,7 +161,7 @@ fn test_multiline_preset() {
 #[test]
 fn test_json_records_schema_flat() {
     let data = generate_sample("json-records", 200, 42);
-    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "schema", "--depth", "0"]);
+    let output = run_txtfold(&data, &["schemas", "--format", "json", "--depth", "0"]);
 
     assert_coarse_invariants(&output, "json-records/schema-flat");
     assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
@@ -195,7 +195,7 @@ fn test_json_records_schema_flat() {
 #[test]
 fn test_json_records_schema_depth1() {
     let data = generate_sample("json-records", 200, 42);
-    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "schema", "--depth", "1"]);
+    let output = run_txtfold(&data, &["schemas", "--format", "json", "--depth", "1"]);
 
     assert_coarse_invariants(&output, "json-records/schema-depth1");
     assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
@@ -228,7 +228,7 @@ fn test_json_records_schema_depth1() {
 #[test]
 fn test_json_document_subtree() {
     let data = generate_sample("json-document", 100, 42);
-    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "subtree"]);
+    let output = run_txtfold(&data, &["subtree", "--format", "json"]);
 
     assert_coarse_invariants(&output, "json-document/subtree");
     assert_eq!(output["metadata"]["algorithm"], "subtree");

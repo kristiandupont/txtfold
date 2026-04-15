@@ -1,42 +1,13 @@
 use anyhow::{Context, Result};
 use clap::builder::PossibleValuesParser;
-use clap::{value_parser, Arg, Command};
+use clap::{Arg, Command};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
-use txtfold::clustering::EditDistanceClusterer;
-use txtfold::formatter::MarkdownFormatter;
-use txtfold::metadata::{ParamDefault, ParamType};
-use txtfold::ngram::NgramOutlierDetector;
-use txtfold::output::OutputBuilder;
-use txtfold::parser::{EntryMode, EntryParser};
-use txtfold::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
-use txtfold::schema_clustering::SchemaClusterer;
-use txtfold::subtree::SubtreeFinder;
-use txtfold::template::TemplateExtractor;
-use txtfold::InputFormat;
-
-/// Leak a String to produce a `&'static str`.
-///
-/// Used only for the small number of default-value strings we format at startup.
-fn leak_str(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
-}
+use txtfold::registry::{ALL_FORMATTERS, ALL_INPUT_FORMATS};
+use txtfold::{InputFormat, ProcessOptions};
 
 fn build_cli() -> Command {
-    // --- valid values for --algorithm ---
-    let mut algo_values: Vec<&'static str> = vec!["auto"];
-    let mut algo_help = String::from("Algorithm to use [auto");
-    for algo in ALL_ALGORITHMS {
-        algo_values.push(algo.name);
-        algo_values.extend_from_slice(algo.aliases);
-        algo_help.push_str(&format!("|{}", algo.name));
-    }
-    algo_help.push(']');
-    for algo in ALL_ALGORITHMS {
-        algo_help.push_str(&format!("\n  {}: {}", algo.name, algo.best_for));
-    }
-
     // --- valid values for --output-format ---
     let mut output_format_values: Vec<&'static str> = vec![];
     for fmt in ALL_FORMATTERS {
@@ -48,48 +19,29 @@ fn build_cli() -> Command {
     let mut input_format_values: Vec<&'static str> = vec![];
     for fmt in ALL_INPUT_FORMATS {
         input_format_values.push(fmt.name);
-        // Include aliases as valid values too
         input_format_values.extend_from_slice(fmt.aliases);
     }
 
-    // --- one Arg per unique algorithm parameter ---
-    let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
-    let mut param_args: Vec<Arg> = vec![];
-    for algo in ALL_ALGORITHMS {
-        for param in algo.parameters {
-            if !seen.insert(param.name) {
-                continue;
-            }
-            let long_flag: &'static str = leak_str(param.name.replace('_', "-"));
-            let default_str: &'static str = match param.default {
-                ParamDefault::Float(v) => leak_str(format!("{v}")),
-                ParamDefault::USize(v) => leak_str(format!("{v}")),
-                ParamDefault::Bool(v) => leak_str(format!("{v}")),
-                ParamDefault::Str(v) => v,
-            };
-            let arg = Arg::new(param.name)
-                .long(long_flag)
-                .default_value(default_str)
-                .help(param.description);
-            let arg = match param.type_info {
-                ParamType::Float => arg.value_parser(value_parser!(f64)),
-                ParamType::USize => arg.value_parser(value_parser!(usize)),
-                ParamType::Bool => arg.value_parser(value_parser!(bool)),
-                ParamType::String | ParamType::Enum(_) => arg.value_parser(value_parser!(String)),
-            };
-            param_args.push(arg);
-        }
-    }
-
-    let mut cmd = Command::new("txtfold")
+    Command::new("txtfold")
         .about("Identify patterns and outliers in large log files and structured data")
         .version(txtfold::version())
+        // Positional arg 1: optional PIPELINE expression.
+        // Positional arg 2: optional FILE path.
+        // Clap can't disambiguate these at the type level, so we accept two
+        // optional positional strings and resolve them ourselves in main().
         .arg(
-            Arg::new("input")
-                .value_name("FILE")
+            Arg::new("pos1")
+                .value_name("PIPELINE_OR_FILE")
                 .required(false)
                 .index(1)
-                .help("Input file to analyze (reads from stdin if omitted)"),
+                .help("Pipeline expression or input file (see disambiguation below)"),
+        )
+        .arg(
+            Arg::new("pos2")
+                .value_name("FILE")
+                .required(false)
+                .index(2)
+                .help("Input file (when pos1 is a pipeline expression)"),
         )
         .arg(
             Arg::new("output-format")
@@ -127,29 +79,35 @@ fn build_cli() -> Command {
                 .value_name("REGEX")
                 .help("Regex that marks the start of a new entry (block format only)"),
         )
-        // Hidden backwards-compat: --entry-mode (single|multiline|auto)
-        .arg(
-            Arg::new("entry-mode")
-                .short('e')
-                .long("entry-mode")
-                .value_parser(["auto", "single", "multiline"])
-                .hide(true),
-        )
-        .arg(
-            Arg::new("algorithm")
-                .short('a')
-                .long("algorithm")
-                .default_value("auto")
-                .value_parser(PossibleValuesParser::new(algo_values))
-                .help(leak_str(algo_help)),
-        )
         .arg(
             Arg::new("budget")
                 .short('b')
                 .long("budget")
                 .value_name("LINES")
-                .value_parser(value_parser!(usize))
-                .help("Maximum output lines. The most important groups are shown first; output is trimmed when the budget is reached."),
+                .value_parser(clap::value_parser!(usize))
+                .help("Maximum output lines. The most important groups are shown first; \
+                       output is trimmed when the budget is reached."),
+        )
+        .arg(
+            Arg::new("ngram-size")
+                .long("ngram-size")
+                .default_value("2")
+                .value_parser(clap::value_parser!(usize))
+                .help("N-gram size for the 'outliers' algorithm"),
+        )
+        .arg(
+            Arg::new("outlier-threshold")
+                .long("outlier-threshold")
+                .default_value("0.0")
+                .value_parser(clap::value_parser!(f64))
+                .help("Outlier score threshold for the 'outliers' algorithm (0.0 = auto-detect)"),
+        )
+        .arg(
+            Arg::new("depth")
+                .long("depth")
+                .default_value("1")
+                .value_parser(clap::value_parser!(usize))
+                .help("Nesting depth for the 'subtree' algorithm"),
         )
         .arg(
             Arg::new("discover")
@@ -167,63 +125,104 @@ fn build_cli() -> Command {
                        Shows where the output budget is going and suggests \
                        del(...) candidates for noisy fields."),
         )
-        ;
+        .after_help(
+            "PIPELINE EXPRESSIONS\n\
+             \n\
+             The optional PIPELINE argument selects the algorithm and pre-processes input.\n\
+             Examples:\n\
+             \n\
+             \x20 txtfold 'outliers' app.log\n\
+             \x20 txtfold 'similar(0.8) | top(20)' --format line app.log\n\
+             \x20 txtfold '.diagnostics[] | del(.sourceCode) | group_by(.category)' biome.json\n\
+             \n\
+             Terminal verbs: summarize (default), similar(t), patterns, outliers, schemas, subtree, group_by(.f)\n\
+             Modifiers: del(.f, ...), top(N), label(.f)\n\
+             Path selection: .field[], .field[*], .field[N], .a.b[]\n\
+             \n\
+             DISAMBIGUATION (one positional argument)\n\
+             \n\
+             If the argument is a readable file → treated as FILE.\n\
+             If it starts with '.' or contains '|' or is a known verb → treated as PIPELINE.\n",
+        )
+}
 
-    for arg in param_args {
-        cmd = cmd.arg(arg);
+/// Decide whether a single positional argument is a pipeline expression or a file path.
+fn is_pipeline_expr(s: &str) -> bool {
+    // A readable file always wins.
+    if PathBuf::from(s).is_file() {
+        return false;
     }
-
-    cmd
+    // Path expression, pipe, or known verb name.
+    s.starts_with('.')
+        || s.contains('|')
+        || txtfold::pipeline::is_verb_name(s)
+        || s.starts_with("similar(")
+        || s.starts_with("top(")
+        || s.starts_with("del(")
+        || s.starts_with("group_by(")
+        || s.starts_with("label(")
 }
 
 fn main() -> Result<()> {
     let matches = build_cli().get_matches();
 
     let output_format = matches.get_one::<String>("output-format").unwrap().as_str();
-    let algorithm = matches.get_one::<String>("algorithm").unwrap().as_str();
     let budget: Option<usize> = matches.get_one::<usize>("budget").copied();
+    let ngram_size = *matches.get_one::<usize>("ngram-size").unwrap();
+    let outlier_threshold = *matches.get_one::<f64>("outlier-threshold").unwrap();
+    let depth = *matches.get_one::<usize>("depth").unwrap();
 
-    // Read input (file or stdin)
-    let (content, filename, extension) =
-        if let Some(path_str) = matches.get_one::<String>("input") {
-            let input_path = PathBuf::from(path_str);
-            let content = fs::read_to_string(&input_path)
-                .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
-            let filename = input_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_string());
-            let ext = input_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|s| s.to_lowercase());
-            (content, filename, ext)
-        } else {
-            let mut content = String::new();
-            io::stdin()
-                .read_to_string(&mut content)
-                .context("Failed to read from stdin")?;
-            (content, None, None)
-        };
+    // ── Resolve positional args ───────────────────────────────────────────────
+    let pos1 = matches.get_one::<String>("pos1").map(|s| s.as_str());
+    let pos2 = matches.get_one::<String>("pos2").map(|s| s.as_str());
 
-    // Resolve input format:
-    // 1. Explicit --format flag takes priority.
-    // 2. Deprecated --input-format flag (hidden alias).
-    // 3. File extension inference (.json → json, else → line).
-    // 4. Stdin with no flag and no file extension → error.
+    let (pipeline_expr, file_arg): (Option<&str>, Option<&str>) = match (pos1, pos2) {
+        (None, _) => (None, None),
+        (Some(a), None) => {
+            if is_pipeline_expr(a) {
+                (Some(a), None)
+            } else {
+                (None, Some(a))
+            }
+        }
+        (Some(a), Some(b)) => (Some(a), Some(b)),
+    };
+
+    // ── Read input ────────────────────────────────────────────────────────────
+    let (content, filename, extension) = if let Some(path_str) = file_arg {
+        let input_path = PathBuf::from(path_str);
+        let content = fs::read_to_string(&input_path)
+            .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
+        let filename = input_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
+        let ext = input_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_lowercase());
+        (content, filename, ext)
+    } else {
+        let mut content = String::new();
+        io::stdin()
+            .read_to_string(&mut content)
+            .context("Failed to read from stdin")?;
+        (content, None, None)
+    };
+
+    // ── Resolve input format ──────────────────────────────────────────────────
     let format_flag = matches
         .get_one::<String>("format")
         .or_else(|| matches.get_one::<String>("input-format"))
         .map(|s| s.as_str());
+
+    let entry_pattern = matches.get_one::<String>("entry-pattern").cloned();
 
     let input_format: InputFormat = if let Some(flag) = format_flag {
         match flag {
             "json" | "json-array" | "json-map" => InputFormat::Json,
             "line" | "log" | "logs" | "text" => InputFormat::Line,
             "block" | "multiline" | "multi-line" => {
-                let entry_pattern = matches
-                    .get_one::<String>("entry-pattern")
-                    .map(|s| s.clone());
                 InputFormat::Block { entry_pattern }
             }
             other => anyhow::bail!(
@@ -237,32 +236,10 @@ fn main() -> Result<()> {
             _ => InputFormat::Line,
         }
     } else {
-        // Stdin with no --format flag and no file extension
-        anyhow::bail!(
-            "Cannot infer format from stdin; pass --format json|line|block"
-        );
+        anyhow::bail!("Cannot infer format from stdin; pass --format json|line|block");
     };
 
-    // Backwards-compat: honour --entry-mode when --format block is not in use.
-    // If the user passed --entry-mode multiline without an explicit --format,
-    // we switch the already-inferred format to Block.
-    let input_format = if let Some(entry_mode_arg) =
-        matches.get_one::<String>("entry-mode").map(|s| s.as_str())
-    {
-        match (entry_mode_arg, input_format) {
-            ("multiline", InputFormat::Line) => {
-                let entry_pattern =
-                    matches.get_one::<String>("entry-pattern").map(|s| s.clone());
-                InputFormat::Block { entry_pattern }
-            }
-            ("single", _) => InputFormat::Line,
-            (_, other) => other,
-        }
-    } else {
-        input_format
-    };
-
-    // --discover: structural scan, bypasses the analysis pipeline entirely.
+    // ── --discover ────────────────────────────────────────────────────────────
     if matches.get_flag("discover") {
         let output = txtfold::discover(&content, input_format)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -273,32 +250,22 @@ fn main() -> Result<()> {
             _ => output.to_markdown(),
         };
 
-        if let Some(output_path) = matches.get_one::<String>("output") {
-            let path = std::path::PathBuf::from(output_path);
-            fs::write(&path, formatted)
-                .with_context(|| format!("Failed to write output to {path:?}"))?;
-            eprintln!("Output written to {path:?}");
-        } else {
-            println!("{formatted}");
-        }
-        return Ok(());
+        return write_output(formatted, matches.get_one::<String>("output"));
     }
 
-    // --cost-preview: run full analysis then emit a field-level token breakdown.
+    // ── --cost-preview ────────────────────────────────────────────────────────
     if matches.get_flag("cost-preview") {
-        let threshold = *matches.get_one::<f64>("threshold").unwrap();
-        let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
-        let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
-
-        let output = txtfold::cost_preview(
-            &content,
+        let options = ProcessOptions {
             input_format,
-            algorithm,
-            threshold,
+            pipeline_expr: pipeline_expr.map(|s| s.to_string()),
+            budget: None, // cost preview always runs unbounded
             ngram_size,
             outlier_threshold,
-        )
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+            depth,
+        };
+
+        let output = txtfold::cost_preview(&content, &options)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         let formatted = match output_format {
             "json" => serde_json::to_string_pretty(&output)
@@ -306,156 +273,39 @@ fn main() -> Result<()> {
             _ => output.to_markdown(),
         };
 
-        if let Some(output_path) = matches.get_one::<String>("output") {
-            let path = std::path::PathBuf::from(output_path);
-            fs::write(&path, formatted)
-                .with_context(|| format!("Failed to write output to {path:?}"))?;
-            eprintln!("Output written to {path:?}");
-        } else {
-            println!("{formatted}");
-        }
-        return Ok(());
+        return write_output(formatted, matches.get_one::<String>("output"));
     }
 
-    // Resolve algorithm
-    let algorithm = if algorithm == "auto" {
-        match &input_format {
-            InputFormat::Json => "schema",
-            _ => "template",
-        }
-    } else {
-        algorithm
+    // ── Normal analysis ───────────────────────────────────────────────────────
+    let options = ProcessOptions {
+        input_format,
+        pipeline_expr: pipeline_expr.map(|s| s.to_string()),
+        budget,
+        ngram_size,
+        outlier_threshold,
+        depth,
     };
 
-    // Run
-    let output = match &input_format {
-        InputFormat::Json => {
-            use txtfold::parser::{is_json_map, parse_json_array, parse_json_map};
-            let is_map = is_json_map(&content);
+    let output = txtfold::process_to_output(&content, &options, filename)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            if algorithm == "subtree" {
-                let root: serde_json::Value = serde_json::from_str(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {e}"))?;
-
-                let threshold = *matches.get_one::<f64>("threshold").unwrap();
-                let mut finder = SubtreeFinder::new(threshold);
-                finder.process(&root);
-
-                let mut builder = OutputBuilder::new(vec![]);
-                if let Some(name) = filename { builder = builder.with_input_file(name); }
-                if let Some(b) = budget { builder = builder.with_budget(b); }
-                builder.build_from_subtree(&finder, &root)
-            } else {
-                let values = if is_map {
-                    let (values, _keys) = parse_json_map(&content)
-                        .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {e}"))?;
-                    values
-                } else {
-                    parse_json_array(&content)
-                        .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {e}"))?
-                };
-
-                if values.is_empty() {
-                    anyhow::bail!("No JSON objects found in input");
-                }
-
-                let threshold = *matches.get_one::<f64>("threshold").unwrap();
-                let depth = *matches.get_one::<usize>("depth").unwrap();
-                let mut clusterer = SchemaClusterer::new(threshold, depth);
-                clusterer.process(&values);
-
-                let mut builder = OutputBuilder::new(vec![]);
-                if let Some(name) = filename { builder = builder.with_input_file(name); }
-                if let Some(b) = budget { builder = builder.with_budget(b); }
-                builder.build_from_schemas(&clusterer, &values)
-            }
-        }
-
-        InputFormat::Line => {
-            let parser = EntryParser::new(EntryMode::SingleLine);
-            let entries = parser.parse(&content);
-
-            if entries.is_empty() {
-                eprintln!("Warning: input file is empty");
-                return Ok(());
-            }
-
-            run_text_algorithm(algorithm, &matches, entries, filename, budget)?
-        }
-
-        InputFormat::Block { entry_pattern } => {
-            let parser = if let Some(pattern) = entry_pattern {
-                EntryParser::new(EntryMode::MultiLine)
-                    .with_entry_pattern(pattern)
-                    .map_err(|e| anyhow::anyhow!("{e}"))?
-            } else {
-                EntryParser::new(EntryMode::MultiLine)
-            };
-            let entries = parser.parse(&content);
-
-            if entries.is_empty() {
-                eprintln!("Warning: input file is empty");
-                return Ok(());
-            }
-
-            run_text_algorithm(algorithm, &matches, entries, filename, budget)?
-        }
-    };
-
-    // Format output
     let formatted = match output_format {
         "json" => serde_json::to_string_pretty(&output).context("Failed to serialize JSON")?,
-        _ => MarkdownFormatter::format(&output),
+        _ => txtfold::formatter::MarkdownFormatter::format(&output),
     };
 
-    // Write output
-    if let Some(output_path) = matches.get_one::<String>("output") {
-        let path = PathBuf::from(output_path);
+    write_output(formatted, matches.get_one::<String>("output"))
+}
+
+fn write_output(formatted: String, output_path: Option<&String>) -> Result<()> {
+    if let Some(path_str) = output_path {
+        let path = PathBuf::from(path_str);
         fs::write(&path, formatted)
             .with_context(|| format!("Failed to write output to {path:?}"))?;
         eprintln!("Output written to {path:?}");
     } else {
         println!("{formatted}");
     }
-
     Ok(())
 }
 
-fn run_text_algorithm(
-    algorithm: &str,
-    matches: &clap::ArgMatches,
-    entries: Vec<txtfold::entry::Entry>,
-    filename: Option<String>,
-    budget: Option<usize>,
-) -> Result<txtfold::output::AnalysisOutput> {
-    Ok(match algorithm {
-        "template" => {
-            let mut extractor = TemplateExtractor::new();
-            extractor.process(&entries);
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename { builder = builder.with_input_file(name); }
-            if let Some(b) = budget { builder = builder.with_budget(b); }
-            builder.build_from_templates(&extractor)
-        }
-        "clustering" => {
-            let threshold = *matches.get_one::<f64>("threshold").unwrap();
-            let mut clusterer = EditDistanceClusterer::new(threshold);
-            clusterer.process(&entries);
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename { builder = builder.with_input_file(name); }
-            if let Some(b) = budget { builder = builder.with_budget(b); }
-            builder.build_from_clusters(&clusterer)
-        }
-        "ngram" => {
-            let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
-            let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
-            let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
-            detector.process(&entries);
-            let mut builder = OutputBuilder::new(entries);
-            if let Some(name) = filename { builder = builder.with_input_file(name); }
-            if let Some(b) = budget { builder = builder.with_budget(b); }
-            builder.build_from_ngrams(&detector)
-        }
-        other => anyhow::bail!("Unknown algorithm: {other}"),
-    })
-}

@@ -907,6 +907,123 @@ impl OutputBuilder {
         }
     }
 
+    /// Build output from a value-based `group_by(.field)` partition.
+    ///
+    /// `groups` is a list of `(field_value, entry_indices)` pairs already sorted
+    /// by descending count (as returned by `pipeline::partition_by_field`).
+    /// `ungrouped` contains indices of values that did not have the field.
+    pub fn build_from_value_groups(
+        self,
+        field: &str,
+        groups: &[(String, Vec<usize>)],
+        ungrouped: &[usize],
+        values: &[Value],
+    ) -> AnalysisOutput {
+        let total_entries = values.len();
+
+        let mut group_outputs: Vec<GroupOutput> = Vec::new();
+        let mut largest_cluster = 0usize;
+
+        for (idx, (field_value, entry_indices)) in groups.iter().enumerate() {
+            let count = entry_indices.len();
+            if count > largest_cluster {
+                largest_cluster = count;
+            }
+            let percentage = count as f64 / total_entries as f64 * 100.0;
+
+            // Collect up to 3 sample entries (serialised as JSON strings).
+            let samples: Vec<SampleEntry> = entry_indices
+                .iter()
+                .take(3)
+                .filter_map(|&i| values.get(i))
+                .map(|v| SampleEntry {
+                    content: serde_json::to_string(v).unwrap_or_default(),
+                    line_numbers: vec![],
+                    variable_values: HashMap::new(),
+                })
+                .collect();
+
+            group_outputs.push(GroupOutput {
+                id: format!("group_{}", idx),
+                name: field_value.clone(),
+                pattern: format!(".{} = {}", field, field_value),
+                count,
+                percentage,
+                samples,
+                line_ranges: vec![],
+            });
+        }
+
+        // Ungrouped entries become outliers.
+        let mut outliers: Vec<OutlierOutput> = ungrouped
+            .iter()
+            .enumerate()
+            .filter_map(|(oi, &i)| {
+                values.get(i).map(|v| OutlierOutput {
+                    id: format!("ungrouped_{}", oi),
+                    content: serde_json::to_string(v).unwrap_or_default(),
+                    line_number: i + 1,
+                    reason: format!("missing field '{}'", field),
+                    score: 0.0,
+                })
+            })
+            .collect();
+
+        let original_size: usize = values
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap_or_default().len())
+            .sum();
+        let reduced_size: usize = group_outputs
+            .iter()
+            .map(|g| g.pattern.len() + g.samples.iter().map(|s| s.content.len()).sum::<usize>())
+            .sum::<usize>();
+        let reduction_ratio = if original_size > 0 {
+            reduced_size as f64 / original_size as f64
+        } else {
+            0.0
+        };
+
+        let unique_patterns = group_outputs.len();
+        let total_outliers = outliers.len();
+
+        // Apply budget.
+        let (group_outputs, outliers, budget_applied) = if let Some(budget) = self.budget_lines {
+            let fixed = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES;
+            let group_cap = Self::budget_capacity(budget, fixed, LINES_PER_GROUP);
+            let groups_trimmed = group_cap < group_outputs.len();
+            let mut gs = group_outputs;
+            gs.truncate(group_cap);
+            let used = fixed + gs.len() * LINES_PER_GROUP + SECTION_HEADER_LINES + 1;
+            let outlier_cap = Self::budget_capacity(budget, used, LINES_PER_OUTLIER);
+            let outliers_trimmed = outlier_cap < outliers.len();
+            outliers.truncate(outlier_cap);
+            let applied = groups_trimmed || outliers_trimmed;
+            (gs, outliers, Some(applied))
+        } else {
+            (group_outputs, outliers, None)
+        };
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: format!("group_by(.{})", field),
+                reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
+            },
+            summary: AnalysisSummary {
+                unique_patterns,
+                outliers: total_outliers,
+                largest_cluster,
+            },
+            results: AlgorithmResults::Grouped {
+                groups: group_outputs,
+                outliers,
+            },
+        }
+    }
+
     /// Calculate reduction ratio
     fn calculate_reduction_ratio(&self, groups: &[GroupOutput]) -> f64 {
         // Original size: sum of all entry contents
@@ -1069,6 +1186,76 @@ impl OutputBuilder {
                 outliers,
             },
         }
+    }
+}
+
+// ── Post-processing ───────────────────────────────────────────────────────────
+
+/// Truncate output to the N largest groups across all result variants.
+///
+/// Groups already appear in descending-count order (the builders guarantee
+/// this). The excess groups are dropped; `budget_applied` is set accordingly.
+pub fn apply_top(output: &mut AnalysisOutput, n: usize) {
+    let trimmed = match &mut output.results {
+        AlgorithmResults::Grouped { groups, .. } => {
+            let was = groups.len();
+            groups.truncate(n);
+            groups.len() < was
+        }
+        AlgorithmResults::SchemaGrouped { schemas, .. } => {
+            let was = schemas.len();
+            schemas.truncate(n);
+            schemas.len() < was
+        }
+        AlgorithmResults::PathGrouped { patterns, .. } => {
+            let was = patterns.len();
+            patterns.truncate(n);
+            patterns.len() < was
+        }
+        AlgorithmResults::OutlierFocused { outliers, .. } => {
+            let was = outliers.len();
+            outliers.truncate(n);
+            outliers.len() < was
+        }
+    };
+
+    if trimmed {
+        output.metadata.budget_applied = Some(true);
+    }
+}
+
+/// Relabel groups using the value of a field from each group's sample data.
+///
+/// For `SchemaGrouped`: sets `name` to the first sample value of `field`.
+/// For `PathGrouped`: sets the first path as the name (field acts as a hint).
+/// For `Grouped` and `OutlierFocused`: no-op (insufficient per-group field data).
+pub fn apply_label(output: &mut AnalysisOutput, field: &str) {
+    match &mut output.results {
+        AlgorithmResults::SchemaGrouped { schemas, .. } => {
+            for schema in schemas.iter_mut() {
+                if let Some(first_val) = schema
+                    .sample_values
+                    .get(field)
+                    .and_then(|vals| vals.first())
+                {
+                    schema.name = first_val.clone();
+                }
+            }
+        }
+        AlgorithmResults::PathGrouped { patterns, .. } => {
+            for pattern in patterns.iter_mut() {
+                if let Some(first_val) = pattern
+                    .sample_values
+                    .get(field)
+                    .and_then(|vals| vals.first())
+                {
+                    pattern.schema_description = first_val.clone();
+                }
+            }
+        }
+        // Grouped and OutlierFocused don't carry per-group field-level samples
+        // in a form that supports relabelling — no-op for now.
+        AlgorithmResults::Grouped { .. } | AlgorithmResults::OutlierFocused { .. } => {}
     }
 }
 

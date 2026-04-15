@@ -34,13 +34,13 @@ import type { AnalysisOutput, ProcessOptions, DiscoverOutput, DiscoverOptions, C
 function callCore(input: string, options: ProcessOptions, format: string): string {
   const {
     inputFormat,
-    algorithm = "auto",
-    threshold = 0.8,
+    pipeline = "",
     ngramSize = 2,
     outlierThreshold = 0.0,
+    depth = 1,
     budgetLines = undefined,
   } = options;
-  return process_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
+  return process_text(input, inputFormat, pipeline, ngramSize, outlierThreshold, depth, budgetLines, format) as string;
 }
 
 /**
@@ -98,13 +98,13 @@ export function discoverMarkdown(input: string, options: DiscoverOptions): strin
 export function costPreview(input: string, options: CostPreviewOptions): CostPreviewOutput {
   const {
     inputFormat,
-    algorithm = "auto",
-    threshold = 0.8,
+    pipeline = "",
     ngramSize = 2,
     outlierThreshold = 0.0,
+    depth = 1,
   } = options;
   return JSON.parse(
-    cost_preview_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, "json") as string
+    cost_preview_text(input, inputFormat, pipeline, ngramSize, outlierThreshold, depth, "json") as string
   ) as CostPreviewOutput;
 }
 
@@ -116,10 +116,10 @@ export function costPreview(input: string, options: CostPreviewOptions): CostPre
 export function costPreviewMarkdown(input: string, options: CostPreviewOptions): string {
   const {
     inputFormat,
-    algorithm = "auto",
-    threshold = 0.8,
+    pipeline = "",
     ngramSize = 2,
     outlierThreshold = 0.0,
+    depth = 1,
   } = options;
-  return cost_preview_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, "markdown") as string;
+  return cost_preview_text(input, inputFormat, pipeline, ngramSize, outlierThreshold, depth, "markdown") as string;
 }

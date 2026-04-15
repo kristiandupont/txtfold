@@ -8,27 +8,36 @@ use pyo3::prelude::*;
 /// Args:
 ///     input: Text or JSON content to analyze.
 ///     input_format: Input format — "json", "line", or "block". Required.
-///     algorithm: One of "auto", "template", "clustering", "ngram", "schema", "subtree".
-///     threshold: Similarity threshold for clustering/schema algorithms (0.0–1.0).
-///     ngram_size: N-gram size for the ngram algorithm.
-///     outlier_threshold: Outlier threshold for ngram (0.0 = auto-detect).
-///     budget: Maximum output lines. Most important groups shown first; output trimmed at limit.
+///     pipeline: Optional pipeline expression (e.g. "del(.x) | schemas").
+///               The terminal verb selects the algorithm.
+///     ngram_size: N-gram size for the 'outliers' verb.
+///     outlier_threshold: Outlier threshold for 'outliers' (0.0 = auto-detect).
+///     depth: Nesting depth for the 'subtree' verb.
+///     budget: Maximum output lines. Most important groups shown first.
 ///     format: Output format — "json" or "markdown".
 #[pyfunction]
-#[pyo3(signature = (input, input_format, algorithm="auto", threshold=0.8, ngram_size=2, outlier_threshold=0.0, budget=None, format="json"))]
+#[pyo3(signature = (input, input_format, pipeline=None, ngram_size=2, outlier_threshold=0.0, depth=1, budget=None, format="json"))]
 fn process(
     input: &str,
     input_format: &str,
-    algorithm: &str,
-    threshold: f64,
+    pipeline: Option<&str>,
     ngram_size: usize,
     outlier_threshold: f64,
+    depth: usize,
     budget: Option<usize>,
     format: &str,
 ) -> PyResult<String> {
     let fmt = txtfold::input_format_from_str(input_format)
         .map_err(PyValueError::new_err)?;
-    txtfold::process(input, fmt, algorithm, threshold, ngram_size, outlier_threshold, budget, format)
+    let options = txtfold::ProcessOptions {
+        input_format: fmt,
+        pipeline_expr: pipeline.map(|s| s.to_string()),
+        budget,
+        ngram_size,
+        outlier_threshold,
+        depth,
+    };
+    txtfold::process(input, &options, format)
         .map_err(PyValueError::new_err)
 }
 
@@ -56,25 +65,33 @@ fn discover(input: &str, input_format: &str, format: &str) -> PyResult<String> {
 /// Args:
 ///     input: Text or JSON content to analyze.
 ///     input_format: Input format — "json", "line", or "block". Required.
-///     algorithm: One of "auto", "template", "clustering", "ngram", "schema", "subtree".
-///     threshold: Similarity threshold for clustering/schema algorithms (0.0–1.0).
-///     ngram_size: N-gram size for the ngram algorithm.
-///     outlier_threshold: Outlier threshold for ngram (0.0 = auto-detect).
+///     pipeline: Optional pipeline expression (e.g. "del(.x) | schemas").
+///     ngram_size: N-gram size for the 'outliers' verb.
+///     outlier_threshold: Outlier threshold for 'outliers' (0.0 = auto-detect).
+///     depth: Nesting depth for the 'subtree' verb.
 ///     format: Output format — "json" or "markdown".
 #[pyfunction]
-#[pyo3(signature = (input, input_format, algorithm="auto", threshold=0.8, ngram_size=2, outlier_threshold=0.0, format="json"))]
+#[pyo3(signature = (input, input_format, pipeline=None, ngram_size=2, outlier_threshold=0.0, depth=1, format="json"))]
 fn cost_preview(
     input: &str,
     input_format: &str,
-    algorithm: &str,
-    threshold: f64,
+    pipeline: Option<&str>,
     ngram_size: usize,
     outlier_threshold: f64,
+    depth: usize,
     format: &str,
 ) -> PyResult<String> {
     let fmt = txtfold::input_format_from_str(input_format)
         .map_err(PyValueError::new_err)?;
-    txtfold::cost_preview_formatted(input, fmt, algorithm, threshold, ngram_size, outlier_threshold, format)
+    let options = txtfold::ProcessOptions {
+        input_format: fmt,
+        pipeline_expr: pipeline.map(|s| s.to_string()),
+        budget: None,
+        ngram_size,
+        outlier_threshold,
+        depth,
+    };
+    txtfold::cost_preview_formatted(input, &options, format)
         .map_err(PyValueError::new_err)
 }
 
