@@ -7,6 +7,7 @@
 use wasm_bindgen::prelude::*;
 
 pub mod clustering;
+pub mod discover;
 pub mod entry;
 pub mod formatter;
 pub mod metadata;
@@ -179,6 +180,31 @@ pub fn process(
     }
 }
 
+/// Run structural discovery and return the raw `DiscoverOutput`.
+pub fn discover(input: &str, input_format: InputFormat) -> Result<discover::DiscoverOutput, String> {
+    discover::discover(input, input_format)
+}
+
+/// Run structural discovery and return serialized output.
+///
+/// - `format`: `"json"` or `"markdown"`
+pub fn discover_formatted(
+    input: &str,
+    input_format: InputFormat,
+    format: &str,
+) -> Result<String, String> {
+    let output = discover::discover(input, input_format)?;
+    match format {
+        "json" => serde_json::to_string_pretty(&output)
+            .map_err(|e| format!("Failed to serialize output: {}", e)),
+        "markdown" | "md" => Ok(output.to_markdown()),
+        _ => Err(format!(
+            "Unknown format: {}. Use 'json' or 'markdown'",
+            format
+        )),
+    }
+}
+
 /// Parse an input format string into an `InputFormat` enum.
 ///
 /// Valid values: `"json"`, `"line"`, `"block"`.
@@ -208,6 +234,17 @@ pub fn process_text(
 ) -> Result<String, String> {
     let fmt = input_format_from_str(input_format)?;
     process(input, fmt, algorithm, threshold, ngram_size, outlier_threshold, budget, format)
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn discover_text(
+    input: &str,
+    input_format: &str,
+    format: &str,
+) -> Result<String, String> {
+    let fmt = input_format_from_str(input_format)?;
+    discover_formatted(input, fmt, format)
 }
 
 #[cfg(test)]

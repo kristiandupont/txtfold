@@ -43,6 +43,24 @@ Pipe from stdin (format must be declared explicitly):
 cat server.log | txtfold --format line
 ```
 
+### Discover mode
+
+Before running full analysis, use `--discover` to get a compact structural map of your data — field paths, types, cardinality, and sample values in ~300 tokens:
+
+```sh
+txtfold --discover biome-output.json
+```
+
+```
+Format: json  |  Entries: 1,842
+Path                            Types    Cardinality  Samples
+$.diagnostics[*].category       string             6  "error", "warning", …
+$.diagnostics[*].severity       number             3  "1", "2", "3"
+$.diagnostics[*].sourceCode     string          1842  "const x = …", …
+```
+
+This is the right first step when you don't know the document structure, or when you want to understand which fields are worth keeping before writing a pipeline expression. Works for JSON, line, and block formats.
+
 ## Algorithms
 
 txtfold selects a default algorithm based on the input format (`template` for line/block, `schema` for json). Override with `--algorithm`.
@@ -108,7 +126,7 @@ For files, the format is inferred from the extension (`.json` → json, anything
 - `markdown` (default) — human-readable summary with reduction stats
 - `json` — structured output, suitable for downstream processing
 
-The JSON output schema is documented in `output-schema.json`.
+The JSON output schema is documented in `output-schema.json`. The `--discover` flag produces a separate `DiscoverOutput` type (not yet part of `output-schema.json` — will be added once the type stabilizes).
 
 ## Compared to alternatives
 

@@ -151,6 +151,14 @@ fn build_cli() -> Command {
                 .value_parser(value_parser!(usize))
                 .help("Maximum output lines. The most important groups are shown first; output is trimmed when the budget is reached."),
         )
+        .arg(
+            Arg::new("discover")
+                .long("discover")
+                .action(clap::ArgAction::SetTrue)
+                .help("Run structural discovery instead of pattern analysis. \
+                       Outputs a compact schema map showing field paths, types, \
+                       cardinality, and sample values."),
+        )
         ;
 
     for arg in param_args {
@@ -245,6 +253,28 @@ fn main() -> Result<()> {
     } else {
         input_format
     };
+
+    // --discover: structural scan, bypasses the analysis pipeline entirely.
+    if matches.get_flag("discover") {
+        let output = txtfold::discover(&content, input_format)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let formatted = match output_format {
+            "json" => serde_json::to_string_pretty(&output)
+                .context("Failed to serialize JSON")?,
+            _ => output.to_markdown(),
+        };
+
+        if let Some(output_path) = matches.get_one::<String>("output") {
+            let path = std::path::PathBuf::from(output_path);
+            fs::write(&path, formatted)
+                .with_context(|| format!("Failed to write output to {path:?}"))?;
+            eprintln!("Output written to {path:?}");
+        } else {
+            println!("{formatted}");
+        }
+        return Ok(());
+    }
 
     // Resolve algorithm
     let algorithm = if algorithm == "auto" {

@@ -1,4 +1,4 @@
-import init, { process_text } from "../wasm-web/txtfold.js";
+import init, { process_text, discover_text } from "../wasm-web/txtfold.js";
 
 export type {
   AnalysisOutput,
@@ -18,9 +18,12 @@ export type {
   SchemaGroupOutput,
   PathPatternOutput,
   ProcessOptions,
+  DiscoverOutput,
+  FieldSummary,
+  DiscoverOptions,
 } from "./types.js";
 
-import type { AnalysisOutput, ProcessOptions } from "./types.js";
+import type { AnalysisOutput, ProcessOptions, DiscoverOutput, DiscoverOptions } from "./types.js";
 
 let initPromise: Promise<void> | null = null;
 
@@ -81,4 +84,24 @@ export async function processMarkdown(input: string, options: ProcessOptions): P
 export async function processFormatted(input: string, options: ProcessOptions, format: string = "markdown"): Promise<string> {
   await ensureInit();
   return callCore(input, options, format);
+}
+
+/**
+ * Run structural discovery and return a typed DiscoverOutput.
+ *
+ * @throws {Error} if the input cannot be processed.
+ */
+export async function discover(input: string, options: DiscoverOptions): Promise<DiscoverOutput> {
+  await ensureInit();
+  return JSON.parse(discover_text(input, options.inputFormat, "json") as string) as DiscoverOutput;
+}
+
+/**
+ * Run structural discovery and return a markdown-formatted schema table.
+ *
+ * @throws {Error} if the input cannot be processed.
+ */
+export async function discoverMarkdown(input: string, options: DiscoverOptions): Promise<string> {
+  await ensureInit();
+  return discover_text(input, options.inputFormat, "markdown") as string;
 }

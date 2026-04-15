@@ -150,3 +150,36 @@ export interface ProcessOptions {
   /** Maximum output lines. Most important groups shown first; output trimmed at limit. */
   budgetLines?: number;
 }
+
+// ── Discover types ────────────────────────────────────────────────────────────
+// Note: not yet part of output-schema.json — will be added once the type stabilizes.
+
+/** Summary of a single field or slot discovered in the input. */
+export interface FieldSummary {
+  /** Normalized path, e.g. "$.diagnostics[*].category" or "slot[0]" */
+  path: string;
+  /** Value types seen at this path, e.g. ["string", "null"] */
+  types: string[];
+  /** Number of distinct values seen (capped at 10 000) */
+  cardinality: number;
+  /** Up to 5 representative values */
+  samples: string[];
+  /** Fraction of entries that contain this field (0.0–1.0) */
+  present_in_pct: number;
+}
+
+/** Output of the discover operation — a compact structural schema map. */
+export interface DiscoverOutput {
+  /** Input format: "json", "line", or "block" */
+  format: string;
+  /** Total number of top-level entries processed */
+  entry_count: number;
+  /** Per-field summaries */
+  fields: FieldSummary[];
+}
+
+/** Options for discover() and discoverMarkdown(). */
+export interface DiscoverOptions {
+  /** Input format: "json", "line", or "block". Required. */
+  inputFormat: string;
+}

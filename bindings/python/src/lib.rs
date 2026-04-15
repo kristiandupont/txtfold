@@ -32,8 +32,26 @@ fn process(
         .map_err(PyValueError::new_err)
 }
 
+/// Run structural discovery on text or JSON input.
+///
+/// Returns either a JSON string (DiscoverOutput) or a markdown table.
+///
+/// Args:
+///     input: Text or JSON content to discover.
+///     input_format: Input format — "json", "line", or "block". Required.
+///     format: Output format — "json" or "markdown".
+#[pyfunction]
+#[pyo3(signature = (input, input_format, format="json"))]
+fn discover(input: &str, input_format: &str, format: &str) -> PyResult<String> {
+    let fmt = txtfold::input_format_from_str(input_format)
+        .map_err(PyValueError::new_err)?;
+    txtfold::discover_formatted(input, fmt, format)
+        .map_err(PyValueError::new_err)
+}
+
 #[pymodule]
 fn _txtfold(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(process, m)?)?;
+    m.add_function(wrap_pyfunction!(discover, m)?)?;
     Ok(())
 }

@@ -47,21 +47,28 @@ Input Format (explicit: json | line | block)
   — inferred from file extension for files (.json → json, else → line)
   — required via --format flag for stdin
   ↓
-  ├─ line  → Parser → Text Entries (one per line)
-  │            ↓
-  │         Algorithm (auto) → template | clustering | ngram
+  ├─ --discover (bypasses analysis entirely)
+  │    ↓
+  │   discover.rs → DiscoverOutput (paths, types, cardinality, samples)
+  │    ↓
+  │   Formatter → Markdown table / JSON
   │
-  ├─ block → Parser → Text Entries (multi-line; --entry-pattern or timestamp heuristic)
-  │            ↓
-  │         Algorithm (auto) → template | clustering | ngram
-  │
-  └─ json  → Parser → JSON Values (array or map — internal heuristic)
-               ↓
-            Algorithm (auto) → schema | subtree
-  ↓
-Structured Output (JSON) — algorithm-specific result type
-  ↓
-Formatter → Markdown / JSON output
+  └─ (normal analysis)
+       ├─ line  → Parser → Text Entries (one per line)
+       │            ↓
+       │         Algorithm (auto) → template | clustering | ngram
+       │
+       ├─ block → Parser → Text Entries (multi-line; --entry-pattern or timestamp heuristic)
+       │            ↓
+       │         Algorithm (auto) → template | clustering | ngram
+       │
+       └─ json  → Parser → JSON Values (array or map — internal heuristic)
+                    ↓
+                 Algorithm (auto) → schema | subtree
+       ↓
+      Structured Output (JSON) — algorithm-specific result type
+       ↓
+      Formatter → Markdown / JSON output
 ```
 
 ### Configuration Hierarchy
@@ -72,6 +79,16 @@ Two levels of selection, each overridable:
 2. **Parameters** (threshold, ngram size, entry pattern, etc.)
 
 Input format is always explicit — either declared via `--format` or inferred from the file extension. There is no content-based auto-detection.
+
+## Discover
+
+`discover.rs` implements a fast structural scan that runs on the full document before any analysis. It produces a `DiscoverOutput`: a list of `FieldSummary` entries, one per unique field path (JSON) or token slot position (line/block).
+
+For **JSON**, it walks the entire document tree. Array indices are normalized to `[*]` so that all elements of an array share a single representative path (e.g. `$.diagnostics[*].category`). For each leaf path it records: value types seen, cardinality (distinct values, capped at 10 000), up to 5 samples, and `present_in_pct` (occurrences of this path ÷ total elements in the nearest enclosing array).
+
+For **line/block**, it tokenizes the first line of each entry using the existing `Tokenizer` and treats each non-whitespace token position as a slot. Reports the token type (timestamp, number, ip\_address, identifier, literal, …), cardinality, and samples per slot.
+
+`DiscoverOutput` is not yet part of `output-schema.json` — it will be added once the type stabilizes.
 
 ## Algorithms
 
@@ -123,7 +140,7 @@ Trade-off: registry needs updating when adding components, but this is intention
 
 ## Language Bindings
 
-Both bindings expose the same two-function API: `process()` → structured output, `processMarkdown()` → string. The typed output classes are generated from `output-schema.json` by `tools/gen-types.ts` and must be regenerated whenever the Rust output types change.
+Both bindings expose a three-function API: `process()` → structured output, `processMarkdown()` → string, `discover()` → `DiscoverOutput`, `discoverMarkdown()` → string. The typed output classes for `AnalysisOutput` are generated from `output-schema.json` by `tools/gen-types.ts`; the `DiscoverOutput` types are currently hand-maintained in `bindings/npm/src/types.ts` and will be folded into the generation step once the schema is finalised.
 
 **Python (`bindings/python/`)** — PyO3 native extension built with maturin. `process()` returns a `dict` typed as `AnalysisOutput` (a `TypedDict`). Published as `txtfold` on PyPI. Per-platform wheels built by a CI matrix.
 
