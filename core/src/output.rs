@@ -843,6 +843,8 @@ impl OutputBuilder {
 
         // Reduction ratio: pattern descriptions vs original document size
         let original_size = serde_json::to_string(root).unwrap_or_default().len();
+        // Singleton content is not rendered in the path-grouped formatter (only
+        // the reason string is shown), so exclude it from the reduced size.
         let reduced_size: usize = pattern_outputs.iter().map(|p| {
             p.schema_description.len()
                 + p.paths.iter().map(|s| s.len()).sum::<usize>()
@@ -850,7 +852,7 @@ impl OutputBuilder {
                     .map(|v| v.iter().map(|s| s.len()).sum::<usize>())
                     .sum::<usize>()
         }).sum::<usize>()
-            + singleton_outputs.iter().map(|o| o.content.len()).sum::<usize>();
+            + singleton_outputs.iter().map(|o| o.reason.len()).sum::<usize>();
 
         let reduction_ratio = if original_size > 0 {
             reduced_size as f64 / original_size as f64

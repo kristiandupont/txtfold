@@ -172,7 +172,14 @@ fn collect_samples(
     for field in fields {
         if let Some(v) = map.get(field) {
             let s = match v {
-                Value::String(s) => s.clone(),
+                Value::String(s) => {
+                    const MAX_LEN: usize = 150;
+                    if s.len() > MAX_LEN {
+                        format!("{}…", &s[..MAX_LEN])
+                    } else {
+                        s.clone()
+                    }
+                }
                 Value::Number(n) => n.to_string(),
                 Value::Bool(b) => b.to_string(),
                 Value::Null => "null".to_string(),
