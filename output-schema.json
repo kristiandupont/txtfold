@@ -1,166 +1,126 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "AnalysisOutput",
-  "description": "Complete analysis output",
-  "type": "object",
-  "required": [
-    "metadata",
-    "results",
-    "summary"
-  ],
-  "properties": {
-    "metadata": {
-      "description": "Metadata about the analysis",
-      "allOf": [
-        {
-          "$ref": "#/definitions/AnalysisMetadata"
-        }
-      ]
-    },
-    "results": {
-      "description": "Algorithm-specific results",
-      "allOf": [
-        {
-          "$ref": "#/definitions/AlgorithmResults"
-        }
-      ]
-    },
-    "summary": {
-      "description": "Summary statistics",
-      "allOf": [
-        {
-          "$ref": "#/definitions/AnalysisSummary"
-        }
-      ]
-    }
-  },
   "definitions": {
     "AlgorithmResults": {
       "description": "Algorithm-specific output formats",
       "oneOf": [
         {
           "description": "Pattern grouping with optional outliers (template extraction, clustering)",
-          "type": "object",
+          "properties": {
+            "groups": {
+              "items": {
+                "$ref": "#/definitions/GroupOutput"
+              },
+              "type": "array"
+            },
+            "outliers": {
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "grouped"
+              ],
+              "type": "string"
+            }
+          },
           "required": [
             "groups",
             "outliers",
             "type"
           ],
-          "properties": {
-            "groups": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/GroupOutput"
-              }
-            },
-            "outliers": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OutlierOutput"
-              }
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "grouped"
-              ]
-            }
-          }
+          "type": "object"
         },
         {
           "description": "Outlier-focused with baseline information (n-gram analysis)",
-          "type": "object",
-          "required": [
-            "baseline",
-            "outliers",
-            "type"
-          ],
           "properties": {
             "baseline": {
               "$ref": "#/definitions/BaselineOutput"
             },
             "outliers": {
-              "type": "array",
               "items": {
                 "$ref": "#/definitions/OutlierOutput"
-              }
+              },
+              "type": "array"
             },
             "type": {
-              "type": "string",
               "enum": [
                 "outlier_focused"
-              ]
+              ],
+              "type": "string"
             }
-          }
+          },
+          "required": [
+            "baseline",
+            "outliers",
+            "type"
+          ],
+          "type": "object"
         },
         {
           "description": "Schema-based grouping (JSON/structured data)",
-          "type": "object",
+          "properties": {
+            "outliers": {
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              },
+              "type": "array"
+            },
+            "schemas": {
+              "items": {
+                "$ref": "#/definitions/SchemaGroupOutput"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "schema_grouped"
+              ],
+              "type": "string"
+            }
+          },
           "required": [
             "outliers",
             "schemas",
             "type"
           ],
-          "properties": {
-            "outliers": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OutlierOutput"
-              }
-            },
-            "schemas": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/SchemaGroupOutput"
-              }
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "schema_grouped"
-              ]
-            }
-          }
+          "type": "object"
         },
         {
           "description": "Path-based pattern grouping (subtree algorithm)",
-          "type": "object",
+          "properties": {
+            "patterns": {
+              "items": {
+                "$ref": "#/definitions/PathPatternOutput"
+              },
+              "type": "array"
+            },
+            "singletons": {
+              "items": {
+                "$ref": "#/definitions/OutlierOutput"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "path_grouped"
+              ],
+              "type": "string"
+            }
+          },
           "required": [
             "patterns",
             "singletons",
             "type"
           ],
-          "properties": {
-            "patterns": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PathPatternOutput"
-              }
-            },
-            "singletons": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/OutlierOutput"
-              }
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "path_grouped"
-              ]
-            }
-          }
+          "type": "object"
         }
       ]
     },
     "AnalysisMetadata": {
       "description": "Metadata about the analysis run",
-      "type": "object",
-      "required": [
-        "algorithm",
-        "reduction_ratio",
-        "total_entries"
-      ],
       "properties": {
         "algorithm": {
           "description": "Algorithm used",
@@ -175,12 +135,12 @@
         },
         "budget_lines": {
           "description": "Budget in output lines requested by the caller (if any)",
+          "format": "uint",
+          "minimum": 0.0,
           "type": [
             "integer",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0.0
+          ]
         },
         "input_file": {
           "description": "Input file name (optional)",
@@ -191,62 +151,97 @@
         },
         "reduction_ratio": {
           "description": "Reduction ratio (output size / input size)",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         },
         "total_entries": {
           "description": "Total number of entries processed",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0.0
+          "minimum": 0.0,
+          "type": "integer"
         }
-      }
+      },
+      "required": [
+        "algorithm",
+        "reduction_ratio",
+        "total_entries"
+      ],
+      "type": "object"
+    },
+    "AnalysisOutput": {
+      "description": "Complete analysis output",
+      "properties": {
+        "metadata": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AnalysisMetadata"
+            }
+          ],
+          "description": "Metadata about the analysis"
+        },
+        "results": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AlgorithmResults"
+            }
+          ],
+          "description": "Algorithm-specific results"
+        },
+        "summary": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AnalysisSummary"
+            }
+          ],
+          "description": "Summary statistics"
+        }
+      },
+      "required": [
+        "metadata",
+        "results",
+        "summary"
+      ],
+      "title": "AnalysisOutput",
+      "type": "object"
     },
     "AnalysisSummary": {
       "description": "Summary statistics",
-      "type": "object",
+      "properties": {
+        "largest_cluster": {
+          "description": "Size of largest cluster",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "outliers": {
+          "description": "Number of outliers detected",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unique_patterns": {
+          "description": "Number of unique patterns found",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
       "required": [
         "largest_cluster",
         "outliers",
         "unique_patterns"
       ],
-      "properties": {
-        "largest_cluster": {
-          "description": "Size of largest cluster",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
-        },
-        "outliers": {
-          "description": "Number of outliers detected",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
-        },
-        "unique_patterns": {
-          "description": "Number of unique patterns found",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
-        }
-      }
+      "type": "object"
     },
     "BaselineOutput": {
       "description": "Baseline information for outlier-focused algorithms",
-      "type": "object",
-      "required": [
-        "common_features",
-        "description",
-        "normal_count",
-        "normal_percentage"
-      ],
       "properties": {
         "common_features": {
           "description": "Top common features (e.g., n-grams, tokens)",
-          "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "type": "array"
         },
         "description": {
           "description": "Description of the baseline/common patterns",
@@ -254,17 +249,16 @@
         },
         "normal_count": {
           "description": "Number of entries considered \"normal\"",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0.0
+          "minimum": 0.0,
+          "type": "integer"
         },
         "normal_percentage": {
           "description": "Percentage of entries considered \"normal\"",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         },
         "threshold": {
-          "description": "Threshold used for outlier detection (if applicable)",
           "anyOf": [
             {
               "$ref": "#/definitions/ThresholdInfo"
@@ -272,28 +266,154 @@
             {
               "type": "null"
             }
+          ],
+          "description": "Threshold used for outlier detection (if applicable)"
+        }
+      },
+      "required": [
+        "common_features",
+        "description",
+        "normal_count",
+        "normal_percentage"
+      ],
+      "type": "object"
+    },
+    "CostPreviewOutput": {
+      "description": "Field-level token breakdown of an analysis result.",
+      "properties": {
+        "estimated_tokens": {
+          "description": "Total estimated token count across all fields.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "fields": {
+          "description": "Per-field token breakdown, sorted by token count descending.",
+          "items": {
+            "$ref": "#/definitions/FieldCost"
+          },
+          "type": "array"
+        },
+        "suggestion": {
+          "description": "Suggested `del(...)` expression when noisy fields are found.",
+          "type": [
+            "string",
+            "null"
           ]
         }
-      }
+      },
+      "required": [
+        "estimated_tokens",
+        "fields"
+      ],
+      "title": "CostPreviewOutput",
+      "type": "object"
+    },
+    "DiscoverOutput": {
+      "description": "Output of the discover operation — a compact structural schema map.",
+      "properties": {
+        "entry_count": {
+          "description": "Total number of top-level entries processed",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "fields": {
+          "description": "Per-field summaries",
+          "items": {
+            "$ref": "#/definitions/FieldSummary"
+          },
+          "type": "array"
+        },
+        "format": {
+          "description": "Input format: `\"json\"`, `\"line\"`, or `\"block\"`",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_count",
+        "fields",
+        "format"
+      ],
+      "title": "DiscoverOutput",
+      "type": "object"
+    },
+    "FieldCost": {
+      "description": "Token cost attributed to a single field across all groups/patterns.",
+      "properties": {
+        "path": {
+          "description": "Field name (top-level key for JSON, variable name for text patterns).",
+          "type": "string"
+        },
+        "pct": {
+          "description": "Percentage of total estimated tokens.",
+          "format": "float",
+          "type": "number"
+        },
+        "tokens": {
+          "description": "Estimated token count for this field's sample values.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "pct",
+        "tokens"
+      ],
+      "type": "object"
+    },
+    "FieldSummary": {
+      "description": "Summary of a single field/slot discovered in the input.",
+      "properties": {
+        "cardinality": {
+          "description": "Number of distinct values seen (capped at 10 000)",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "path": {
+          "description": "Normalized path, e.g. `$.diagnostics[*].category` or `slot[0]`",
+          "type": "string"
+        },
+        "present_in_pct": {
+          "description": "Fraction of entries that contain this field (0.0–1.0)",
+          "format": "float",
+          "type": "number"
+        },
+        "samples": {
+          "description": "Up to 5 representative values",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "types": {
+          "description": "Value types seen at this path, e.g. `[\"string\", \"null\"]`",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cardinality",
+        "path",
+        "present_in_pct",
+        "samples",
+        "types"
+      ],
+      "type": "object"
     },
     "GroupOutput": {
       "description": "A single pattern group in the output",
-      "type": "object",
-      "required": [
-        "count",
-        "id",
-        "line_ranges",
-        "name",
-        "pattern",
-        "percentage",
-        "samples"
-      ],
       "properties": {
         "count": {
           "description": "Number of entries matching this pattern",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0.0
+          "minimum": 0.0,
+          "type": "integer"
         },
         "id": {
           "description": "Group identifier",
@@ -301,24 +421,24 @@
         },
         "line_ranges": {
           "description": "Line number ranges where this pattern appears",
-          "type": "array",
           "items": {
-            "type": "array",
             "items": [
               {
-                "type": "integer",
                 "format": "uint",
-                "minimum": 0.0
+                "minimum": 0.0,
+                "type": "integer"
               },
               {
-                "type": "integer",
                 "format": "uint",
-                "minimum": 0.0
+                "minimum": 0.0,
+                "type": "integer"
               }
             ],
             "maxItems": 2,
-            "minItems": 2
-          }
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
         },
         "name": {
           "description": "Derived human-readable name from pattern",
@@ -330,28 +450,30 @@
         },
         "percentage": {
           "description": "Percentage of total entries",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         },
         "samples": {
           "description": "Sample entries from this group",
-          "type": "array",
           "items": {
             "$ref": "#/definitions/SampleEntry"
-          }
+          },
+          "type": "array"
         }
-      }
+      },
+      "required": [
+        "count",
+        "id",
+        "line_ranges",
+        "name",
+        "pattern",
+        "percentage",
+        "samples"
+      ],
+      "type": "object"
     },
     "OutlierOutput": {
       "description": "An outlier entry",
-      "type": "object",
-      "required": [
-        "content",
-        "id",
-        "line_number",
-        "reason",
-        "score"
-      ],
       "properties": {
         "content": {
           "description": "The content",
@@ -363,9 +485,9 @@
         },
         "line_number": {
           "description": "Line number",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0.0
+          "minimum": 0.0,
+          "type": "integer"
         },
         "reason": {
           "description": "Reason for being flagged as outlier",
@@ -373,14 +495,66 @@
         },
         "score": {
           "description": "Outlier score (lower = more unusual)",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         }
-      }
+      },
+      "required": [
+        "content",
+        "id",
+        "line_number",
+        "reason",
+        "score"
+      ],
+      "type": "object"
     },
     "PathPatternOutput": {
       "description": "A structural pattern found at one or more paths in a JSON document (subtree algorithm)",
-      "type": "object",
+      "properties": {
+        "count": {
+          "description": "Total number of objects that matched this pattern",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "fields": {
+          "description": "Fields present in this schema",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Pattern identifier",
+          "type": "string"
+        },
+        "paths": {
+          "description": "Normalized paths where this pattern appears (e.g. `$.users[*]`)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "percentage": {
+          "description": "Percentage of total objects found in the document",
+          "format": "double",
+          "type": "number"
+        },
+        "sample_values": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Sample field values",
+          "type": "object"
+        },
+        "schema_description": {
+          "description": "Human-readable schema description",
+          "type": "string"
+        }
+      },
       "required": [
         "count",
         "fields",
@@ -390,60 +564,10 @@
         "sample_values",
         "schema_description"
       ],
-      "properties": {
-        "count": {
-          "description": "Total number of objects that matched this pattern",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
-        },
-        "fields": {
-          "description": "Fields present in this schema",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "id": {
-          "description": "Pattern identifier",
-          "type": "string"
-        },
-        "paths": {
-          "description": "Normalized paths where this pattern appears (e.g. `$.users[*]`)",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "percentage": {
-          "description": "Percentage of total objects found in the document",
-          "type": "number",
-          "format": "double"
-        },
-        "sample_values": {
-          "description": "Sample field values",
-          "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "schema_description": {
-          "description": "Human-readable schema description",
-          "type": "string"
-        }
-      }
+      "type": "object"
     },
     "SampleEntry": {
       "description": "A sample entry from a group",
-      "type": "object",
-      "required": [
-        "content",
-        "line_numbers",
-        "variable_values"
-      ],
       "properties": {
         "content": {
           "description": "The actual content",
@@ -451,60 +575,55 @@
         },
         "line_numbers": {
           "description": "Line numbers of sample instances",
-          "type": "array",
           "items": {
-            "type": "integer",
             "format": "uint",
-            "minimum": 0.0
-          }
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
         },
         "variable_values": {
-          "description": "Variable values found in samples",
-          "type": "object",
           "additionalProperties": {
-            "type": "array",
             "items": {
               "type": "string"
-            }
-          }
+            },
+            "type": "array"
+          },
+          "description": "Variable values found in samples",
+          "type": "object"
         }
-      }
+      },
+      "required": [
+        "content",
+        "line_numbers",
+        "variable_values"
+      ],
+      "type": "object"
     },
     "SchemaGroupOutput": {
       "description": "A schema group (for JSON/structured data)",
-      "type": "object",
-      "required": [
-        "count",
-        "entry_indices",
-        "fields",
-        "id",
-        "name",
-        "percentage",
-        "sample_values",
-        "schema_description"
-      ],
       "properties": {
         "count": {
           "description": "Number of entries with this schema",
-          "type": "integer",
           "format": "uint",
-          "minimum": 0.0
+          "minimum": 0.0,
+          "type": "integer"
         },
         "entry_indices": {
           "description": "Entry indices (which entries have this schema)",
-          "type": "array",
           "items": {
-            "type": "integer",
             "format": "uint",
-            "minimum": 0.0
-          }
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
         },
         "fields": {
           "description": "Fields present in this schema",
-          "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "type": "array"
         },
         "id": {
           "description": "Group identifier",
@@ -516,67 +635,72 @@
         },
         "percentage": {
           "description": "Percentage of total entries",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         },
         "sample_values": {
-          "description": "Sample field values",
-          "type": "object",
           "additionalProperties": {
-            "type": "array",
             "items": {
               "type": "string"
-            }
-          }
+            },
+            "type": "array"
+          },
+          "description": "Sample field values",
+          "type": "object"
         },
         "schema_description": {
           "description": "Schema description (field names and types)",
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "count",
+        "entry_indices",
+        "fields",
+        "id",
+        "name",
+        "percentage",
+        "sample_values",
+        "schema_description"
+      ],
+      "type": "object"
     },
     "ScoreStatsOutput": {
       "description": "Score statistics for n-gram analysis",
-      "type": "object",
+      "properties": {
+        "max": {
+          "format": "double",
+          "type": "number"
+        },
+        "mean": {
+          "format": "double",
+          "type": "number"
+        },
+        "median": {
+          "format": "double",
+          "type": "number"
+        },
+        "min": {
+          "format": "double",
+          "type": "number"
+        }
+      },
       "required": [
         "max",
         "mean",
         "median",
         "min"
       ],
-      "properties": {
-        "max": {
-          "type": "number",
-          "format": "double"
-        },
-        "mean": {
-          "type": "number",
-          "format": "double"
-        },
-        "median": {
-          "type": "number",
-          "format": "double"
-        },
-        "min": {
-          "type": "number",
-          "format": "double"
-        }
-      }
+      "type": "object"
     },
     "ThresholdInfo": {
       "description": "Information about threshold used for outlier detection",
-      "type": "object",
-      "required": [
-        "auto_detected",
-        "value"
-      ],
       "properties": {
         "auto_detected": {
           "description": "Whether this was auto-detected",
           "type": "boolean"
         },
         "score_stats": {
-          "description": "Score statistics",
           "anyOf": [
             {
               "$ref": "#/definitions/ScoreStatsOutput"
@@ -584,14 +708,25 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "description": "Score statistics"
         },
         "value": {
           "description": "The threshold value used",
-          "type": "number",
-          "format": "double"
+          "format": "double",
+          "type": "number"
         }
-      }
+      },
+      "required": [
+        "auto_detected",
+        "value"
+      ],
+      "type": "object"
     }
-  }
+  },
+  "roots": [
+    "AnalysisOutput",
+    "DiscoverOutput",
+    "CostPreviewOutput"
+  ]
 }

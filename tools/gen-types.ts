@@ -4,6 +4,12 @@
  *   bindings/npm/src/types.ts   — TypeScript interfaces
  *   bindings/python/txtfold/_types.py  — Python TypedDicts
  *
+ * The schema is a combined multi-root document:
+ *   { "$schema": "...", "roots": ["AnalysisOutput", ...], "definitions": { ... } }
+ *
+ * All root types and their supporting sub-types live in `definitions`.
+ * The `roots` array names which definitions are top-level output types.
+ *
  * Run from the repo root:
  *   bun tools/gen-types.ts
  */
@@ -98,9 +104,6 @@ function generateTS(): string {
     out.push("");
   }
 
-  // Root type
-  if (schema.title && schema.type === "object") emitObject(schema.title, schema);
-
   for (const [name, def] of Object.entries(defs)) {
     if (def.oneOf) {
       const suffix = lastWord(name);
@@ -127,10 +130,12 @@ function generateTS(): string {
     }
   }
 
-  // ProcessOptions is binding-specific — not derived from the output schema.
+  // Binding-specific options types — not derived from the output schema.
   out.push(
     "/** Options for process() and processMarkdown(). */",
     "export interface ProcessOptions {",
+    '  /** Input format: "json", "line", or "block". Required. */',
+    "  inputFormat: string;",
     '  /** Algorithm to use. Default: "auto" (auto-detect). */',
     "  algorithm?: string;",
     "  /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */",
@@ -141,6 +146,26 @@ function generateTS(): string {
     "  outlierThreshold?: number;",
     "  /** Maximum output lines. Most important groups shown first; output trimmed at limit. */",
     "  budgetLines?: number;",
+    "}",
+    "",
+    "/** Options for discover() and discoverMarkdown(). */",
+    "export interface DiscoverOptions {",
+    '  /** Input format: "json", "line", or "block". Required. */',
+    "  inputFormat: string;",
+    "}",
+    "",
+    "/** Options for costPreview() and costPreviewMarkdown(). */",
+    "export interface CostPreviewOptions {",
+    '  /** Input format: "json", "line", or "block". Required. */',
+    "  inputFormat: string;",
+    '  /** Algorithm to use. Default: "auto" (auto-detect). */',
+    "  algorithm?: string;",
+    "  /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */",
+    "  threshold?: number;",
+    "  /** N-gram size for the ngram algorithm. Default: 2. */",
+    "  ngramSize?: number;",
+    "  /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */",
+    "  outlierThreshold?: number;",
     "}",
     "",
   );
@@ -219,9 +244,6 @@ function generatePy(): string {
     out.push("");
     out.push("");
   }
-
-  // Root type
-  if (schema.title && schema.type === "object") emitObject(schema.title, schema);
 
   for (const [name, def] of Object.entries(defs)) {
     if (def.oneOf) {

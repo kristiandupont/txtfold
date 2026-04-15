@@ -8,13 +8,6 @@ from typing import Any, Literal, Union
 from typing import TypedDict
 
 
-# Complete analysis output
-class AnalysisOutput(TypedDict):
-    metadata: AnalysisMetadata
-    results: AlgorithmResults
-    summary: AnalysisSummary
-
-
 # Pattern grouping with optional outliers (template extraction, clustering)
 class GroupedResults(TypedDict):
     groups: list[GroupOutput]
@@ -59,6 +52,13 @@ class AnalysisMetadata(_AnalysisMetadataRequired, total=False):
     input_file: str | None
 
 
+# Complete analysis output
+class AnalysisOutput(TypedDict):
+    metadata: AnalysisMetadata
+    results: AlgorithmResults
+    summary: AnalysisSummary
+
+
 # Summary statistics
 class AnalysisSummary(TypedDict):
     largest_cluster: int
@@ -75,6 +75,38 @@ class _BaselineOutputRequired(TypedDict):
 
 class BaselineOutput(_BaselineOutputRequired, total=False):
     threshold: ThresholdInfo | None
+
+
+# Field-level token breakdown of an analysis result.
+class _CostPreviewOutputRequired(TypedDict):
+    estimated_tokens: int
+    fields: list[FieldCost]
+
+class CostPreviewOutput(_CostPreviewOutputRequired, total=False):
+    suggestion: str | None
+
+
+# Output of the discover operation — a compact structural schema map.
+class DiscoverOutput(TypedDict):
+    entry_count: int
+    fields: list[FieldSummary]
+    format: str
+
+
+# Token cost attributed to a single field across all groups/patterns.
+class FieldCost(TypedDict):
+    path: str
+    pct: float
+    tokens: int
+
+
+# Summary of a single field/slot discovered in the input.
+class FieldSummary(TypedDict):
+    cardinality: int
+    path: str
+    present_in_pct: float
+    samples: list[str]
+    types: list[str]
 
 
 # A single pattern group in the output

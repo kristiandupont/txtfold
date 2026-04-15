@@ -159,6 +159,14 @@ fn build_cli() -> Command {
                        Outputs a compact schema map showing field paths, types, \
                        cardinality, and sample values."),
         )
+        .arg(
+            Arg::new("cost-preview")
+                .long("cost-preview")
+                .action(clap::ArgAction::SetTrue)
+                .help("Run full analysis then emit a field-level token breakdown. \
+                       Shows where the output budget is going and suggests \
+                       del(...) candidates for noisy fields."),
+        )
         ;
 
     for arg in param_args {
@@ -258,6 +266,39 @@ fn main() -> Result<()> {
     if matches.get_flag("discover") {
         let output = txtfold::discover(&content, input_format)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let formatted = match output_format {
+            "json" => serde_json::to_string_pretty(&output)
+                .context("Failed to serialize JSON")?,
+            _ => output.to_markdown(),
+        };
+
+        if let Some(output_path) = matches.get_one::<String>("output") {
+            let path = std::path::PathBuf::from(output_path);
+            fs::write(&path, formatted)
+                .with_context(|| format!("Failed to write output to {path:?}"))?;
+            eprintln!("Output written to {path:?}");
+        } else {
+            println!("{formatted}");
+        }
+        return Ok(());
+    }
+
+    // --cost-preview: run full analysis then emit a field-level token breakdown.
+    if matches.get_flag("cost-preview") {
+        let threshold = *matches.get_one::<f64>("threshold").unwrap();
+        let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
+        let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
+
+        let output = txtfold::cost_preview(
+            &content,
+            input_format,
+            algorithm,
+            threshold,
+            ngram_size,
+            outlier_threshold,
+        )
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         let formatted = match output_format {
             "json" => serde_json::to_string_pretty(&output)

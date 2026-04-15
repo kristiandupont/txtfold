@@ -49,9 +49,39 @@ fn discover(input: &str, input_format: &str, format: &str) -> PyResult<String> {
         .map_err(PyValueError::new_err)
 }
 
+/// Run full analysis then return a field-level token cost breakdown.
+///
+/// Returns either a JSON string (CostPreviewOutput) or a markdown table.
+///
+/// Args:
+///     input: Text or JSON content to analyze.
+///     input_format: Input format — "json", "line", or "block". Required.
+///     algorithm: One of "auto", "template", "clustering", "ngram", "schema", "subtree".
+///     threshold: Similarity threshold for clustering/schema algorithms (0.0–1.0).
+///     ngram_size: N-gram size for the ngram algorithm.
+///     outlier_threshold: Outlier threshold for ngram (0.0 = auto-detect).
+///     format: Output format — "json" or "markdown".
+#[pyfunction]
+#[pyo3(signature = (input, input_format, algorithm="auto", threshold=0.8, ngram_size=2, outlier_threshold=0.0, format="json"))]
+fn cost_preview(
+    input: &str,
+    input_format: &str,
+    algorithm: &str,
+    threshold: f64,
+    ngram_size: usize,
+    outlier_threshold: f64,
+    format: &str,
+) -> PyResult<String> {
+    let fmt = txtfold::input_format_from_str(input_format)
+        .map_err(PyValueError::new_err)?;
+    txtfold::cost_preview_formatted(input, fmt, algorithm, threshold, ngram_size, outlier_threshold, format)
+        .map_err(PyValueError::new_err)
+}
+
 #[pymodule]
 fn _txtfold(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(process, m)?)?;
     m.add_function(wrap_pyfunction!(discover, m)?)?;
+    m.add_function(wrap_pyfunction!(cost_preview, m)?)?;
     Ok(())
 }

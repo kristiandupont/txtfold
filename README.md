@@ -61,6 +61,26 @@ $.diagnostics[*].sourceCode     string          1842  "const x = …", …
 
 This is the right first step when you don't know the document structure, or when you want to understand which fields are worth keeping before writing a pipeline expression. Works for JSON, line, and block formats.
 
+### Cost preview
+
+Before committing to a full analysis, use `--cost-preview` to see where the output budget is going and which fields are inflating it:
+
+```sh
+txtfold --cost-preview biome-output.json
+```
+
+```
+Estimated output: ~9,200 tokens
+────────────────────────────────────────
+sourceCode    6,100 tokens  ( 66%)  ← noise candidate
+dictionary    1,800 tokens  ( 20%)  ← noise candidate
+category         80 tokens  (  1%)
+...
+Suggested: del(.sourceCode, .dictionary) → ~1,300 tokens
+```
+
+Fields consuming more than 20% of the estimated token budget are flagged as noise candidates. The suggested `del(...)` expression shows what the output would shrink to if those fields were removed. Use this before handing output to an LLM to avoid burning context on high-cardinality fields that carry no signal.
+
 ## Algorithms
 
 txtfold selects a default algorithm based on the input format (`template` for line/block, `schema` for json). Override with `--algorithm`.
@@ -126,7 +146,7 @@ For files, the format is inferred from the extension (`.json` → json, anything
 - `markdown` (default) — human-readable summary with reduction stats
 - `json` — structured output, suitable for downstream processing
 
-The JSON output schema is documented in `output-schema.json`. The `--discover` flag produces a separate `DiscoverOutput` type (not yet part of `output-schema.json` — will be added once the type stabilizes).
+The JSON output schema is documented in `output-schema.json`, which covers all three output types: `AnalysisOutput` (normal analysis), `DiscoverOutput` (`--discover`), and `CostPreviewOutput` (`--cost-preview`). TypeScript and Python types are generated from this schema by `tools/gen-types.ts`.
 
 ## Compared to alternatives
 

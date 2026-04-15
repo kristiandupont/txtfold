@@ -53,6 +53,14 @@ Input Format (explicit: json | line | block)
   │    ↓
   │   Formatter → Markdown table / JSON
   │
+  ├─ --cost-preview (runs full analysis, then cost pass)
+  │    ↓
+  │   (normal analysis pipeline — see below)
+  │    ↓
+  │   cost_preview.rs → CostPreviewOutput (per-field token estimates, suggestion)
+  │    ↓
+  │   Formatter → Markdown table / JSON
+  │
   └─ (normal analysis)
        ├─ line  → Parser → Text Entries (one per line)
        │            ↓
@@ -88,7 +96,21 @@ For **JSON**, it walks the entire document tree. Array indices are normalized to
 
 For **line/block**, it tokenizes the first line of each entry using the existing `Tokenizer` and treats each non-whitespace token position as a slot. Reports the token type (timestamp, number, ip\_address, identifier, literal, …), cardinality, and samples per slot.
 
-`DiscoverOutput` is not yet part of `output-schema.json` — it will be added once the type stabilizes.
+`DiscoverOutput` is part of `output-schema.json` alongside `AnalysisOutput` and `CostPreviewOutput`.
+
+## Cost Preview
+
+`cost_preview.rs` runs the full analysis pipeline and then walks the resulting `AnalysisOutput` to compute a field-level token breakdown. Token count is estimated as `chars / 4` (ceiling division), which is a good approximation for English-language and code content.
+
+For each result variant the relevant sample data is:
+
+- **SchemaGrouped / PathGrouped** — `sample_values` maps from field name to sampled strings; costs are aggregated by field name across all groups.
+- **Grouped** (text templates / clustering) — pattern text goes to a `pattern` bucket; sample entry content goes to `content`; per-variable values (e.g. `var_0`) are counted separately.
+- **OutlierFocused** (n-gram) — baseline `common_features` strings and outlier content are counted as separate buckets.
+
+After aggregation, fields are sorted by token count. Any field consuming >20% of the total is flagged as a noise candidate and included in a `del(...)` suggestion string showing the estimated remaining tokens.
+
+`CostPreviewOutput` is part of `output-schema.json` alongside `AnalysisOutput` and `DiscoverOutput`.
 
 ## Algorithms
 
@@ -140,7 +162,7 @@ Trade-off: registry needs updating when adding components, but this is intention
 
 ## Language Bindings
 
-Both bindings expose a three-function API: `process()` → structured output, `processMarkdown()` → string, `discover()` → `DiscoverOutput`, `discoverMarkdown()` → string. The typed output classes for `AnalysisOutput` are generated from `output-schema.json` by `tools/gen-types.ts`; the `DiscoverOutput` types are currently hand-maintained in `bindings/npm/src/types.ts` and will be folded into the generation step once the schema is finalised.
+Both bindings expose a six-function API: `process()` → `AnalysisOutput`, `processMarkdown()` → string, `discover()` → `DiscoverOutput`, `discoverMarkdown()` → string, `costPreview()` → `CostPreviewOutput`, `costPreviewMarkdown()` → string. All three output types and their supporting sub-types are generated from `output-schema.json` by `tools/gen-types.ts`. The schema is a combined multi-root document (`roots: [AnalysisOutput, DiscoverOutput, CostPreviewOutput]`) with a shared `definitions` block; `dump-schema` regenerates it from the Rust types via `schemars`.
 
 **Python (`bindings/python/`)** — PyO3 native extension built with maturin. `process()` returns a `dict` typed as `AnalysisOutput` (a `TypedDict`). Published as `txtfold` on PyPI. Per-platform wheels built by a CI matrix.
 

@@ -2,13 +2,6 @@
 // Source: output-schema.json
 // Regenerate: bun tools/gen-types.ts
 
-/** Complete analysis output */
-export interface AnalysisOutput {
-  metadata: AnalysisMetadata;
-  results: AlgorithmResults;
-  summary: AnalysisSummary;
-}
-
 /** Pattern grouping with optional outliers (template extraction, clustering) */
 export interface GroupedResults {
   groups: GroupOutput[];
@@ -54,6 +47,13 @@ export interface AnalysisMetadata {
   total_entries: number;
 }
 
+/** Complete analysis output */
+export interface AnalysisOutput {
+  metadata: AnalysisMetadata;
+  results: AlgorithmResults;
+  summary: AnalysisSummary;
+}
+
 /** Summary statistics */
 export interface AnalysisSummary {
   largest_cluster: number;
@@ -68,6 +68,36 @@ export interface BaselineOutput {
   normal_count: number;
   normal_percentage: number;
   threshold?: ThresholdInfo | null;
+}
+
+/** Field-level token breakdown of an analysis result. */
+export interface CostPreviewOutput {
+  estimated_tokens: number;
+  fields: FieldCost[];
+  suggestion?: string | null;
+}
+
+/** Output of the discover operation — a compact structural schema map. */
+export interface DiscoverOutput {
+  entry_count: number;
+  fields: FieldSummary[];
+  format: string;
+}
+
+/** Token cost attributed to a single field across all groups/patterns. */
+export interface FieldCost {
+  path: string;
+  pct: number;
+  tokens: number;
+}
+
+/** Summary of a single field/slot discovered in the input. */
+export interface FieldSummary {
+  cardinality: number;
+  path: string;
+  present_in_pct: number;
+  samples: string[];
+  types: string[];
 }
 
 /** A single pattern group in the output */
@@ -151,35 +181,22 @@ export interface ProcessOptions {
   budgetLines?: number;
 }
 
-// ── Discover types ────────────────────────────────────────────────────────────
-// Note: not yet part of output-schema.json — will be added once the type stabilizes.
-
-/** Summary of a single field or slot discovered in the input. */
-export interface FieldSummary {
-  /** Normalized path, e.g. "$.diagnostics[*].category" or "slot[0]" */
-  path: string;
-  /** Value types seen at this path, e.g. ["string", "null"] */
-  types: string[];
-  /** Number of distinct values seen (capped at 10 000) */
-  cardinality: number;
-  /** Up to 5 representative values */
-  samples: string[];
-  /** Fraction of entries that contain this field (0.0–1.0) */
-  present_in_pct: number;
-}
-
-/** Output of the discover operation — a compact structural schema map. */
-export interface DiscoverOutput {
-  /** Input format: "json", "line", or "block" */
-  format: string;
-  /** Total number of top-level entries processed */
-  entry_count: number;
-  /** Per-field summaries */
-  fields: FieldSummary[];
-}
-
 /** Options for discover() and discoverMarkdown(). */
 export interface DiscoverOptions {
   /** Input format: "json", "line", or "block". Required. */
   inputFormat: string;
+}
+
+/** Options for costPreview() and costPreviewMarkdown(). */
+export interface CostPreviewOptions {
+  /** Input format: "json", "line", or "block". Required. */
+  inputFormat: string;
+  /** Algorithm to use. Default: "auto" (auto-detect). */
+  algorithm?: string;
+  /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */
+  threshold?: number;
+  /** N-gram size for the ngram algorithm. Default: 2. */
+  ngramSize?: number;
+  /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
+  outlierThreshold?: number;
 }

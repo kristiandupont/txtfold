@@ -1,7 +1,7 @@
 // wasm-pack --target nodejs self-initialises at require() time —
 // no manual initSync or WASM loading needed.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { process_text, discover_text } = require("../wasm/txtfold.js");
+const { process_text, discover_text, cost_preview_text } = require("../wasm/txtfold.js");
 
 export type {
   AnalysisOutput,
@@ -24,9 +24,12 @@ export type {
   DiscoverOutput,
   FieldSummary,
   DiscoverOptions,
+  CostPreviewOutput,
+  FieldCost,
+  CostPreviewOptions,
 } from "./types.js";
 
-import type { AnalysisOutput, ProcessOptions, DiscoverOutput, DiscoverOptions } from "./types.js";
+import type { AnalysisOutput, ProcessOptions, DiscoverOutput, DiscoverOptions, CostPreviewOutput, CostPreviewOptions } from "./types.js";
 
 function callCore(input: string, options: ProcessOptions, format: string): string {
   const {
@@ -85,4 +88,38 @@ export function discover(input: string, options: DiscoverOptions): DiscoverOutpu
  */
 export function discoverMarkdown(input: string, options: DiscoverOptions): string {
   return discover_text(input, options.inputFormat, "markdown") as string;
+}
+
+/**
+ * Run full analysis and return a field-level token cost breakdown.
+ *
+ * @throws {Error} if the input cannot be processed.
+ */
+export function costPreview(input: string, options: CostPreviewOptions): CostPreviewOutput {
+  const {
+    inputFormat,
+    algorithm = "auto",
+    threshold = 0.8,
+    ngramSize = 2,
+    outlierThreshold = 0.0,
+  } = options;
+  return JSON.parse(
+    cost_preview_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, "json") as string
+  ) as CostPreviewOutput;
+}
+
+/**
+ * Run full analysis and return a markdown cost breakdown table.
+ *
+ * @throws {Error} if the input cannot be processed.
+ */
+export function costPreviewMarkdown(input: string, options: CostPreviewOptions): string {
+  const {
+    inputFormat,
+    algorithm = "auto",
+    threshold = 0.8,
+    ngramSize = 2,
+    outlierThreshold = 0.0,
+  } = options;
+  return cost_preview_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, "markdown") as string;
 }
