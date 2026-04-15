@@ -19,41 +19,89 @@ pub enum EntryMode {
 /// Parser for grouping lines into entries
 pub struct EntryParser {
     mode: EntryMode,
+    /// Optional regex for detecting entry boundaries in block mode.
+    entry_pattern: Option<Regex>,
 }
 
 impl EntryParser {
-    /// Metadata for text/log input format
-    pub const TEXT_FORMAT: InputFormatMetadata = InputFormatMetadata {
-        name: "text",
-        aliases: &["log", "logs"],
-        description: "Plain text log files",
+    // ── Public format-family metadata (json / line / block) ──────────────────
+
+    /// Metadata for JSON input format (array or map — internal heuristic picks between them).
+    pub const JSON_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "json",
+        aliases: &["json-array", "json-map"],
+        description: "JSON input — array of objects or a map/object. Path selection applies.",
+        sub_options: &[],
+    };
+
+    /// Metadata for line-delimited input format (one entry per line).
+    pub const LINE_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "line",
+        aliases: &["log", "logs", "text"],
+        description: "Line-delimited input — one entry per line (logs, CSV)",
+        sub_options: &[],
+    };
+
+    /// Metadata for block input format (multi-line entries).
+    pub const BLOCK_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "block",
+        aliases: &["multiline", "multi-line"],
+        description:
+            "Multi-line entries — boundaries declared via --entry-pattern <regex> or \
+             detected by the multiline heuristic (timestamp + indentation) as a fallback",
         sub_options: &[SubOption {
-            name: "entry-mode",
-            values: &["auto", "single", "multiline"],
-            default: "auto",
-            description: "How to parse entries: single-line, multi-line (stack traces), or auto-detect",
+            name: "entry-pattern",
+            values: &[],
+            default: "",
+            description: "Regex that matches the start of each new entry",
         }],
     };
 
-    /// Metadata for JSON array input format
+    // ── Legacy format metadata (kept for internal use) ────────────────────────
+
+    #[doc(hidden)]
+    pub const TEXT_FORMAT: InputFormatMetadata = InputFormatMetadata {
+        name: "text",
+        aliases: &[],
+        description: "Plain text log files (legacy name — use 'line')",
+        sub_options: &[],
+    };
+
+    #[doc(hidden)]
     pub const JSON_ARRAY_FORMAT: InputFormatMetadata = InputFormatMetadata {
         name: "json-array",
-        aliases: &["json_array", "jsonarray", "array"],
-        description: "JSON array of objects",
+        aliases: &[],
+        description: "JSON array of objects (legacy name — use 'json')",
         sub_options: &[],
     };
 
-    /// Metadata for JSON map/object input format
+    #[doc(hidden)]
     pub const JSON_MAP_FORMAT: InputFormatMetadata = InputFormatMetadata {
         name: "json-map",
-        aliases: &["json_map", "jsonmap", "map"],
-        description: "JSON object/map where each value is analyzed",
+        aliases: &[],
+        description: "JSON object/map where each value is analyzed (legacy name — use 'json')",
         sub_options: &[],
     };
 
-    /// Create a new parser with the specified mode
+    // ── Constructors ──────────────────────────────────────────────────────────
+
+    /// Create a new parser with the specified mode.
     pub fn new(mode: EntryMode) -> Self {
-        EntryParser { mode }
+        EntryParser { mode, entry_pattern: None }
+    }
+
+    /// Set a custom entry-boundary pattern for block mode.
+    ///
+    /// When set, lines matching this regex are treated as the start of a new
+    /// entry instead of using the default timestamp heuristic.
+    ///
+    /// Returns an error if `pattern` is not a valid regex.
+    pub fn with_entry_pattern(mut self, pattern: &str) -> Result<Self, String> {
+        self.entry_pattern = Some(
+            Regex::new(pattern)
+                .map_err(|e| format!("Invalid entry pattern '{}': {}", pattern, e))?,
+        );
+        Ok(self)
     }
 
     /// Parse content into entries
@@ -65,7 +113,13 @@ impl EntryParser {
 
         match mode {
             EntryMode::SingleLine => parse_single_line(content),
-            EntryMode::MultiLine => parse_multi_line(content),
+            EntryMode::MultiLine => {
+                if let Some(pattern) = &self.entry_pattern {
+                    parse_multi_line_with_pattern(content, pattern)
+                } else {
+                    parse_multi_line(content)
+                }
+            }
             EntryMode::Auto => unreachable!("Auto mode should be resolved by now"),
         }
     }
@@ -147,6 +201,45 @@ fn parse_single_line(content: &str) -> Vec<Entry> {
         .enumerate()
         .map(|(idx, line)| Entry::from_line(line.to_string(), idx + 1))
         .collect()
+}
+
+/// Parse content as multi-line entries using a custom entry-boundary pattern.
+///
+/// Lines that match `pattern` start a new entry; all subsequent lines until
+/// the next match are continuation lines of that entry.
+fn parse_multi_line_with_pattern(content: &str, pattern: &Regex) -> Vec<Entry> {
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut entries = Vec::new();
+    let mut current_entry_lines: Vec<String> = Vec::new();
+    let mut current_line_numbers: Vec<usize> = Vec::new();
+
+    for (idx, line) in lines.iter().enumerate() {
+        let line_number = idx + 1;
+
+        if pattern.is_match(line) && !current_entry_lines.is_empty() {
+            entries.push(Entry::from_lines(
+                current_entry_lines.clone(),
+                current_line_numbers.clone(),
+            ));
+            current_entry_lines.clear();
+            current_line_numbers.clear();
+        }
+
+        current_entry_lines.push(line.to_string());
+        current_line_numbers.push(line_number);
+    }
+
+    if !current_entry_lines.is_empty() {
+        entries.push(Entry::from_lines(current_entry_lines, current_line_numbers));
+    }
+
+    // If the pattern never matched, fall back to single-line mode
+    if entries.len() == 1 && entries[0].content.len() == lines.len() {
+        return parse_single_line(content);
+    }
+
+    entries
 }
 
 /// Parse content as multi-line entries

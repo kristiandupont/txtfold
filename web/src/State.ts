@@ -14,7 +14,7 @@ export interface State {
 }
 
 export const initialState: State = {
-  inputFormat: "auto",
+  inputFormat: "line",
   subOptions: {},
   algorithm: "auto",
   params: {},

@@ -35,16 +35,15 @@ function defaultParams(algoName: string): Record<string, number> {
 }
 
 function compatibleAlgorithms(inputFormat: string): typeof schema.algorithms {
-  if (inputFormat === "auto") return schema.algorithms;
-  const typeMap: Record<string, string> = {
-    text: "Text",
-    "json-array": "JsonArray",
-    "json-map": "JsonMap",
+  const typeMap: Record<string, string[]> = {
+    json: ["JsonArray", "JsonMap", "JsonNested"],
+    line: ["Text"],
+    block: ["Text"],
   };
-  const type = typeMap[inputFormat];
-  if (type === undefined) return schema.algorithms;
+  const types = typeMap[inputFormat];
+  if (types === undefined) return schema.algorithms;
   return schema.algorithms.filter((a) =>
-    (a.input_types as string[]).includes(type),
+    (a.input_types as string[]).some((t) => types.includes(t)),
   );
 }
 
@@ -138,7 +137,6 @@ export function* OptionsPanel(
               handleInputFormatChange((e.target as HTMLSelectElement).value)
             }
           >
-            <option value="auto">Auto-detect</option>
             {schema.input_formats.map((f) => (
               <option value={f.name}>{f.name}</option>
             ))}

@@ -28,11 +28,11 @@ pub const ALL_FORMATTERS: &[FormatterMetadata] = &[
     JsonFormatter::METADATA,
 ];
 
-/// All available input formats in the library
+/// All available input formats in the library (public-facing format families).
 pub const ALL_INPUT_FORMATS: &[InputFormatMetadata] = &[
-    EntryParser::TEXT_FORMAT,
-    EntryParser::JSON_ARRAY_FORMAT,
-    EntryParser::JSON_MAP_FORMAT,
+    EntryParser::JSON_FORMAT,
+    EntryParser::LINE_FORMAT,
+    EntryParser::BLOCK_FORMAT,
 ];
 
 /// Find an algorithm by name or alias
@@ -150,16 +150,16 @@ mod tests {
         assert_eq!(ALL_INPUT_FORMATS.len(), 3);
 
         let names: Vec<&str> = ALL_INPUT_FORMATS.iter().map(|f| f.name).collect();
-        assert!(names.contains(&"text"));
-        assert!(names.contains(&"json-array"));
-        assert!(names.contains(&"json-map"));
+        assert!(names.contains(&"json"));
+        assert!(names.contains(&"line"));
+        assert!(names.contains(&"block"));
     }
 
     #[test]
     fn test_find_input_format_by_name() {
-        assert!(find_input_format("text").is_some());
-        assert!(find_input_format("json-array").is_some());
-        assert!(find_input_format("json-map").is_some());
+        assert!(find_input_format("json").is_some());
+        assert!(find_input_format("line").is_some());
+        assert!(find_input_format("block").is_some());
         assert!(find_input_format("nonexistent").is_none());
     }
 
@@ -167,8 +167,8 @@ mod tests {
     fn test_find_input_format_by_alias() {
         assert!(find_input_format("log").is_some());
         assert!(find_input_format("logs").is_some());
-        assert!(find_input_format("array").is_some());
-        assert!(find_input_format("map").is_some());
+        assert!(find_input_format("text").is_some());
+        assert!(find_input_format("multiline").is_some());
     }
 
     #[test]

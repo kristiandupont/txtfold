@@ -36,6 +36,7 @@ export function* App(this: Context) {
       const result = await processFormatted(
         state.input,
         {
+          inputFormat: state.inputFormat,
           algorithm: state.algorithm,
           threshold: state.params["threshold"] ?? 0.8,
           ngramSize: Math.round(state.params["ngram_size"] ?? 2),

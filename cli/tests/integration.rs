@@ -51,10 +51,10 @@ fn generate_sample(preset: &str, lines: usize, seed: u64) -> String {
     String::from_utf8(output.stdout).expect("sample-generator output is not UTF-8")
 }
 
-/// Pipe `input` to `txtfold --format json [extra_args]` and return parsed JSON.
+/// Pipe `input` to `txtfold --output-format json [extra_args]` and return parsed JSON.
 fn run_txtfold(input: &str, extra_args: &[&str]) -> serde_json::Value {
     let mut child = Command::new(txtfold_bin())
-        .args(["--format", "json"])
+        .args(["--output-format", "json"])
         .args(extra_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -108,7 +108,7 @@ fn assert_coarse_invariants(output: &serde_json::Value, label: &str) {
 #[test]
 fn test_web_preset_template() {
     let data = generate_sample("web", 500, 42);
-    let output = run_txtfold(&data, &[]);
+    let output = run_txtfold(&data, &["--format", "line"]);
 
     assert_coarse_invariants(&output, "web/template");
     assert_eq!(output["metadata"]["algorithm"], "template_extraction");
@@ -118,7 +118,7 @@ fn test_web_preset_template() {
 #[test]
 fn test_app_preset_template() {
     let data = generate_sample("app", 500, 42);
-    let output = run_txtfold(&data, &[]);
+    let output = run_txtfold(&data, &["--format", "line"]);
 
     assert_coarse_invariants(&output, "app/template");
     assert_eq!(output["metadata"]["algorithm"], "template_extraction");
@@ -127,7 +127,7 @@ fn test_app_preset_template() {
 #[test]
 fn test_noisy_preset_clustering() {
     let data = generate_sample("noisy", 200, 42);
-    let output = run_txtfold(&data, &["--algorithm", "clustering"]);
+    let output = run_txtfold(&data, &["--format", "line", "--algorithm", "clustering"]);
 
     assert_coarse_invariants(&output, "noisy/clustering");
     assert_eq!(output["metadata"]["algorithm"], "edit_distance_clustering");
@@ -136,10 +136,10 @@ fn test_noisy_preset_clustering() {
 #[test]
 fn test_multiline_preset() {
     let data = generate_sample("multiline", 100, 42);
-    let output = run_txtfold(&data, &["--entry-mode", "multiline"]);
+    let output = run_txtfold(&data, &["--format", "block"]);
 
     assert_coarse_invariants(&output, "multiline");
-    // Multi-line mode groups lines into blocks, so entry count < raw line count.
+    // Block mode groups lines into multi-line entries, so entry count < raw line count.
     let total_entries = output["metadata"]["total_entries"].as_u64().unwrap();
     assert!(total_entries > 0 && total_entries <= 100);
 }
@@ -161,7 +161,7 @@ fn test_multiline_preset() {
 #[test]
 fn test_json_records_schema_flat() {
     let data = generate_sample("json-records", 200, 42);
-    let output = run_txtfold(&data, &["--algorithm", "schema", "--depth", "0"]);
+    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "schema", "--depth", "0"]);
 
     assert_coarse_invariants(&output, "json-records/schema-flat");
     assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
@@ -195,7 +195,7 @@ fn test_json_records_schema_flat() {
 #[test]
 fn test_json_records_schema_depth1() {
     let data = generate_sample("json-records", 200, 42);
-    let output = run_txtfold(&data, &["--algorithm", "schema", "--depth", "1"]);
+    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "schema", "--depth", "1"]);
 
     assert_coarse_invariants(&output, "json-records/schema-depth1");
     assert_eq!(output["metadata"]["algorithm"], "schema_clustering");
@@ -228,7 +228,7 @@ fn test_json_records_schema_depth1() {
 #[test]
 fn test_json_document_subtree() {
     let data = generate_sample("json-document", 100, 42);
-    let output = run_txtfold(&data, &["--algorithm", "subtree"]);
+    let output = run_txtfold(&data, &["--format", "json", "--algorithm", "subtree"]);
 
     assert_coarse_invariants(&output, "json-document/subtree");
     assert_eq!(output["metadata"]["algorithm"], "subtree");
@@ -264,7 +264,7 @@ fn test_deterministic_with_seed() {
     let data2 = generate_sample("web", 200, 99);
     assert_eq!(data1, data2, "same seed must produce identical data");
 
-    let out1 = run_txtfold(&data1, &[]);
-    let out2 = run_txtfold(&data2, &[]);
+    let out1 = run_txtfold(&data1, &["--format", "line"]);
+    let out2 = run_txtfold(&data2, &["--format", "line"]);
     assert_eq!(out1, out2, "same input must produce identical analysis");
 }

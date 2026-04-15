@@ -33,13 +33,14 @@ function ensureInit(): Promise<void> {
 
 function callCore(input: string, options: ProcessOptions, format: string): string {
   const {
+    inputFormat,
     algorithm = "auto",
     threshold = 0.8,
     ngramSize = 2,
     outlierThreshold = 0.0,
     budgetLines = undefined,
   } = options;
-  return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
+  return process_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
 }
 
 /**
@@ -57,7 +58,7 @@ export async function load(): Promise<void> {
  *
  * @throws {Error} if the input cannot be processed.
  */
-export async function process(input: string, options: ProcessOptions = {}): Promise<AnalysisOutput> {
+export async function process(input: string, options: ProcessOptions): Promise<AnalysisOutput> {
   await ensureInit();
   return JSON.parse(callCore(input, options, "json")) as AnalysisOutput;
 }
@@ -67,7 +68,7 @@ export async function process(input: string, options: ProcessOptions = {}): Prom
  *
  * @throws {Error} if the input cannot be processed.
  */
-export async function processMarkdown(input: string, options: ProcessOptions = {}): Promise<string> {
+export async function processMarkdown(input: string, options: ProcessOptions): Promise<string> {
   await ensureInit();
   return callCore(input, options, "markdown");
 }
@@ -77,7 +78,7 @@ export async function processMarkdown(input: string, options: ProcessOptions = {
  *
  * @throws {Error} if the input cannot be processed.
  */
-export async function processFormatted(input: string, options: ProcessOptions = {}, format: string = "markdown"): Promise<string> {
+export async function processFormatted(input: string, options: ProcessOptions, format: string = "markdown"): Promise<string> {
   await ensureInit();
   return callCore(input, options, format);
 }

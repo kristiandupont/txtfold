@@ -27,13 +27,14 @@ import type { AnalysisOutput, ProcessOptions } from "./types.js";
 
 function callCore(input: string, options: ProcessOptions, format: string): string {
   const {
+    inputFormat,
     algorithm = "auto",
     threshold = 0.8,
     ngramSize = 2,
     outlierThreshold = 0.0,
     budgetLines = undefined,
   } = options;
-  return process_text(input, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
+  return process_text(input, inputFormat, algorithm, threshold, ngramSize, outlierThreshold, budgetLines, format) as string;
 }
 
 /**
@@ -43,7 +44,7 @@ function callCore(input: string, options: ProcessOptions, format: string): strin
  *
  * @throws {Error} if the input cannot be processed.
  */
-export function process(input: string, options: ProcessOptions = {}): AnalysisOutput {
+export function process(input: string, options: ProcessOptions): AnalysisOutput {
   return JSON.parse(callCore(input, options, "json")) as AnalysisOutput;
 }
 
@@ -52,7 +53,7 @@ export function process(input: string, options: ProcessOptions = {}): AnalysisOu
  *
  * @throws {Error} if the input cannot be processed.
  */
-export function processMarkdown(input: string, options: ProcessOptions = {}): string {
+export function processMarkdown(input: string, options: ProcessOptions): string {
   return callCore(input, options, "markdown");
 }
 
@@ -61,6 +62,6 @@ export function processMarkdown(input: string, options: ProcessOptions = {}): st
  *
  * @throws {Error} if the input cannot be processed.
  */
-export function processFormatted(input: string, options: ProcessOptions = {}, format: string = "markdown"): string {
+export function processFormatted(input: string, options: ProcessOptions, format: string = "markdown"): string {
   return callCore(input, options, format);
 }

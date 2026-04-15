@@ -9,11 +9,12 @@ use txtfold::formatter::MarkdownFormatter;
 use txtfold::metadata::{ParamDefault, ParamType};
 use txtfold::ngram::NgramOutlierDetector;
 use txtfold::output::OutputBuilder;
-use txtfold::parser::{is_json, is_json_map, parse_json_array, parse_json_map, EntryMode, EntryParser};
+use txtfold::parser::{EntryMode, EntryParser};
 use txtfold::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
 use txtfold::schema_clustering::SchemaClusterer;
 use txtfold::subtree::SubtreeFinder;
 use txtfold::template::TemplateExtractor;
+use txtfold::InputFormat;
 
 /// Leak a String to produce a `&'static str`.
 ///
@@ -36,27 +37,20 @@ fn build_cli() -> Command {
         algo_help.push_str(&format!("\n  {}: {}", algo.name, algo.best_for));
     }
 
-    // --- valid values for --format ---
-    let mut format_values: Vec<&'static str> = vec![];
+    // --- valid values for --output-format ---
+    let mut output_format_values: Vec<&'static str> = vec![];
     for fmt in ALL_FORMATTERS {
-        format_values.push(fmt.name);
-        format_values.extend_from_slice(fmt.aliases);
+        output_format_values.push(fmt.name);
+        output_format_values.extend_from_slice(fmt.aliases);
     }
 
-    // --- valid values for --input-format ---
-    let mut input_format_values: Vec<&'static str> = vec!["auto"];
+    // --- valid values for --format (input format families) ---
+    let mut input_format_values: Vec<&'static str> = vec![];
     for fmt in ALL_INPUT_FORMATS {
         input_format_values.push(fmt.name);
+        // Include aliases as valid values too
         input_format_values.extend_from_slice(fmt.aliases);
     }
-
-    // --- valid values for --entry-mode (from text format sub-options) ---
-    let entry_mode_values: Vec<&'static str> = ALL_INPUT_FORMATS
-        .iter()
-        .find(|f| f.name == "text")
-        .and_then(|f| f.sub_options.first())
-        .map(|o| o.values.to_vec())
-        .unwrap_or_default();
 
     // --- one Arg per unique algorithm parameter ---
     let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
@@ -98,11 +92,11 @@ fn build_cli() -> Command {
                 .help("Input file to analyze (reads from stdin if omitted)"),
         )
         .arg(
-            Arg::new("format")
+            Arg::new("output-format")
                 .short('f')
-                .long("format")
+                .long("output-format")
                 .default_value("markdown")
-                .value_parser(PossibleValuesParser::new(format_values))
+                .value_parser(PossibleValuesParser::new(output_format_values))
                 .help("Output format"),
         )
         .arg(
@@ -113,20 +107,33 @@ fn build_cli() -> Command {
                 .help("Output file (default: stdout)"),
         )
         .arg(
-            Arg::new("input-format")
-                .short('i')
-                .long("input-format")
-                .default_value("auto")
-                .value_parser(PossibleValuesParser::new(input_format_values))
-                .help("Input format (auto-detected if omitted)"),
+            Arg::new("format")
+                .long("format")
+                .value_parser(PossibleValuesParser::new(input_format_values.clone()))
+                .help("Input format: json | line | block. \
+                       Inferred from file extension when omitted (.json → json, other → line). \
+                       Required when reading from stdin with no file extension."),
         )
+        // Hidden backwards-compat alias for --format
+        .arg(
+            Arg::new("input-format")
+                .long("input-format")
+                .value_parser(PossibleValuesParser::new(input_format_values))
+                .hide(true),
+        )
+        .arg(
+            Arg::new("entry-pattern")
+                .long("entry-pattern")
+                .value_name("REGEX")
+                .help("Regex that marks the start of a new entry (block format only)"),
+        )
+        // Hidden backwards-compat: --entry-mode (single|multiline|auto)
         .arg(
             Arg::new("entry-mode")
                 .short('e')
                 .long("entry-mode")
-                .default_value("auto")
-                .value_parser(PossibleValuesParser::new(entry_mode_values))
-                .help("How to split text into entries (text inputs only)"),
+                .value_parser(["auto", "single", "multiline"])
+                .hide(true),
         )
         .arg(
             Arg::new("algorithm")
@@ -143,7 +150,8 @@ fn build_cli() -> Command {
                 .value_name("LINES")
                 .value_parser(value_parser!(usize))
                 .help("Maximum output lines. The most important groups are shown first; output is trimmed when the budget is reached."),
-        );
+        )
+        ;
 
     for arg in param_args {
         cmd = cmd.arg(arg);
@@ -155,45 +163,93 @@ fn build_cli() -> Command {
 fn main() -> Result<()> {
     let matches = build_cli().get_matches();
 
-    let format = matches.get_one::<String>("format").unwrap().as_str();
+    let output_format = matches.get_one::<String>("output-format").unwrap().as_str();
     let algorithm = matches.get_one::<String>("algorithm").unwrap().as_str();
-    let input_format_arg = matches.get_one::<String>("input-format").unwrap().as_str();
-    let entry_mode_arg = matches.get_one::<String>("entry-mode").unwrap().as_str();
     let budget: Option<usize> = matches.get_one::<usize>("budget").copied();
 
     // Read input (file or stdin)
-    let (content, filename) = if let Some(path_str) = matches.get_one::<String>("input") {
-        let input_path = PathBuf::from(path_str);
-        let content = fs::read_to_string(&input_path)
-            .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
-        let filename = input_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string());
-        (content, filename)
-    } else {
-        let mut content = String::new();
-        io::stdin()
-            .read_to_string(&mut content)
-            .context("Failed to read from stdin")?;
-        (content, None)
-    };
-
-    // Resolve input format
-    let input_format = if input_format_arg == "auto" {
-        if is_json(&content) {
-            if is_json_map(&content) { "json-map" } else { "json-array" }
+    let (content, filename, extension) =
+        if let Some(path_str) = matches.get_one::<String>("input") {
+            let input_path = PathBuf::from(path_str);
+            let content = fs::read_to_string(&input_path)
+                .with_context(|| format!("Failed to read input file: {input_path:?}"))?;
+            let filename = input_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string());
+            let ext = input_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_lowercase());
+            (content, filename, ext)
         } else {
-            "text"
+            let mut content = String::new();
+            io::stdin()
+                .read_to_string(&mut content)
+                .context("Failed to read from stdin")?;
+            (content, None, None)
+        };
+
+    // Resolve input format:
+    // 1. Explicit --format flag takes priority.
+    // 2. Deprecated --input-format flag (hidden alias).
+    // 3. File extension inference (.json → json, else → line).
+    // 4. Stdin with no flag and no file extension → error.
+    let format_flag = matches
+        .get_one::<String>("format")
+        .or_else(|| matches.get_one::<String>("input-format"))
+        .map(|s| s.as_str());
+
+    let input_format: InputFormat = if let Some(flag) = format_flag {
+        match flag {
+            "json" | "json-array" | "json-map" => InputFormat::Json,
+            "line" | "log" | "logs" | "text" => InputFormat::Line,
+            "block" | "multiline" | "multi-line" => {
+                let entry_pattern = matches
+                    .get_one::<String>("entry-pattern")
+                    .map(|s| s.clone());
+                InputFormat::Block { entry_pattern }
+            }
+            other => anyhow::bail!(
+                "Unknown input format '{}'. Use json, line, or block.",
+                other
+            ),
+        }
+    } else if let Some(ref ext) = extension {
+        match ext.as_str() {
+            "json" => InputFormat::Json,
+            _ => InputFormat::Line,
         }
     } else {
-        input_format_arg
+        // Stdin with no --format flag and no file extension
+        anyhow::bail!(
+            "Cannot infer format from stdin; pass --format json|line|block"
+        );
+    };
+
+    // Backwards-compat: honour --entry-mode when --format block is not in use.
+    // If the user passed --entry-mode multiline without an explicit --format,
+    // we switch the already-inferred format to Block.
+    let input_format = if let Some(entry_mode_arg) =
+        matches.get_one::<String>("entry-mode").map(|s| s.as_str())
+    {
+        match (entry_mode_arg, input_format) {
+            ("multiline", InputFormat::Line) => {
+                let entry_pattern =
+                    matches.get_one::<String>("entry-pattern").map(|s| s.clone());
+                InputFormat::Block { entry_pattern }
+            }
+            ("single", _) => InputFormat::Line,
+            (_, other) => other,
+        }
+    } else {
+        input_format
     };
 
     // Resolve algorithm
     let algorithm = if algorithm == "auto" {
-        match input_format {
-            "json-array" | "json-map" => "schema",
+        match &input_format {
+            InputFormat::Json => "schema",
             _ => "template",
         }
     } else {
@@ -201,95 +257,87 @@ fn main() -> Result<()> {
     };
 
     // Run
-    let output = if algorithm == "schema" {
-        let values = match input_format {
-            "json-map" => {
-                let (values, _keys) = parse_json_map(&content)
-                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {e}"))?;
-                values
-            }
-            _ => parse_json_array(&content)
-                .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {e}"))?,
-        };
+    let output = match &input_format {
+        InputFormat::Json => {
+            use txtfold::parser::{is_json_map, parse_json_array, parse_json_map};
+            let is_map = is_json_map(&content);
 
-        if values.is_empty() {
-            anyhow::bail!("No JSON objects found in input");
-        }
+            if algorithm == "subtree" {
+                let root: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {e}"))?;
 
-        let threshold = *matches.get_one::<f64>("threshold").unwrap();
-        let depth = *matches.get_one::<usize>("depth").unwrap();
-        let mut clusterer = SchemaClusterer::new(threshold, depth);
-        clusterer.process(&values);
-
-        let mut builder = OutputBuilder::new(vec![]);
-        if let Some(name) = filename { builder = builder.with_input_file(name); }
-        if let Some(b) = budget { builder = builder.with_budget(b); }
-        builder.build_from_schemas(&clusterer, &values)
-    } else if algorithm == "subtree" {
-        let root: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {e}"))?;
-
-        let threshold = *matches.get_one::<f64>("threshold").unwrap();
-        let mut finder = SubtreeFinder::new(threshold);
-        finder.process(&root);
-
-        let mut builder = OutputBuilder::new(vec![]);
-        if let Some(name) = filename { builder = builder.with_input_file(name); }
-        if let Some(b) = budget { builder = builder.with_budget(b); }
-        builder.build_from_subtree(&finder, &root)
-    } else {
-        let entry_mode = match entry_mode_arg {
-            "single" => EntryMode::SingleLine,
-            "multiline" => EntryMode::MultiLine,
-            _ => EntryMode::Auto,
-        };
-        let parser = EntryParser::new(entry_mode);
-        let entries = parser.parse(&content);
-
-        if entries.is_empty() {
-            eprintln!("Warning: input file is empty");
-            return Ok(());
-        }
-
-        match algorithm {
-            "template" => {
-                let mut extractor = TemplateExtractor::new();
-                extractor.process(&entries);
-                let mut builder = OutputBuilder::new(entries);
-                if let Some(name) = filename { builder = builder.with_input_file(name); }
-                if let Some(b) = budget { builder = builder.with_budget(b); }
-                builder.build_from_templates(&extractor)
-            }
-            "clustering" => {
                 let threshold = *matches.get_one::<f64>("threshold").unwrap();
-                let mut clusterer = EditDistanceClusterer::new(threshold);
-                clusterer.process(&entries);
-                let mut builder = OutputBuilder::new(entries);
+                let mut finder = SubtreeFinder::new(threshold);
+                finder.process(&root);
+
+                let mut builder = OutputBuilder::new(vec![]);
                 if let Some(name) = filename { builder = builder.with_input_file(name); }
                 if let Some(b) = budget { builder = builder.with_budget(b); }
-                builder.build_from_clusters(&clusterer)
-            }
-            "ngram" => {
-                let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
-                let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
-                let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
-                detector.process(&entries);
-                let mut builder = OutputBuilder::new(entries);
+                builder.build_from_subtree(&finder, &root)
+            } else {
+                let values = if is_map {
+                    let (values, _keys) = parse_json_map(&content)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse JSON map: {e}"))?;
+                    values
+                } else {
+                    parse_json_array(&content)
+                        .map_err(|e| anyhow::anyhow!("Failed to parse JSON array: {e}"))?
+                };
+
+                if values.is_empty() {
+                    anyhow::bail!("No JSON objects found in input");
+                }
+
+                let threshold = *matches.get_one::<f64>("threshold").unwrap();
+                let depth = *matches.get_one::<usize>("depth").unwrap();
+                let mut clusterer = SchemaClusterer::new(threshold, depth);
+                clusterer.process(&values);
+
+                let mut builder = OutputBuilder::new(vec![]);
                 if let Some(name) = filename { builder = builder.with_input_file(name); }
                 if let Some(b) = budget { builder = builder.with_budget(b); }
-                builder.build_from_ngrams(&detector)
+                builder.build_from_schemas(&clusterer, &values)
             }
-            other => anyhow::bail!("Unknown algorithm: {other}"),
+        }
+
+        InputFormat::Line => {
+            let parser = EntryParser::new(EntryMode::SingleLine);
+            let entries = parser.parse(&content);
+
+            if entries.is_empty() {
+                eprintln!("Warning: input file is empty");
+                return Ok(());
+            }
+
+            run_text_algorithm(algorithm, &matches, entries, filename, budget)?
+        }
+
+        InputFormat::Block { entry_pattern } => {
+            let parser = if let Some(pattern) = entry_pattern {
+                EntryParser::new(EntryMode::MultiLine)
+                    .with_entry_pattern(pattern)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+            } else {
+                EntryParser::new(EntryMode::MultiLine)
+            };
+            let entries = parser.parse(&content);
+
+            if entries.is_empty() {
+                eprintln!("Warning: input file is empty");
+                return Ok(());
+            }
+
+            run_text_algorithm(algorithm, &matches, entries, filename, budget)?
         }
     };
 
-    // Format
-    let formatted = match format {
+    // Format output
+    let formatted = match output_format {
         "json" => serde_json::to_string_pretty(&output).context("Failed to serialize JSON")?,
         _ => MarkdownFormatter::format(&output),
     };
 
-    // Write
+    // Write output
     if let Some(output_path) = matches.get_one::<String>("output") {
         let path = PathBuf::from(output_path);
         fs::write(&path, formatted)
@@ -300,4 +348,43 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_text_algorithm(
+    algorithm: &str,
+    matches: &clap::ArgMatches,
+    entries: Vec<txtfold::entry::Entry>,
+    filename: Option<String>,
+    budget: Option<usize>,
+) -> Result<txtfold::output::AnalysisOutput> {
+    Ok(match algorithm {
+        "template" => {
+            let mut extractor = TemplateExtractor::new();
+            extractor.process(&entries);
+            let mut builder = OutputBuilder::new(entries);
+            if let Some(name) = filename { builder = builder.with_input_file(name); }
+            if let Some(b) = budget { builder = builder.with_budget(b); }
+            builder.build_from_templates(&extractor)
+        }
+        "clustering" => {
+            let threshold = *matches.get_one::<f64>("threshold").unwrap();
+            let mut clusterer = EditDistanceClusterer::new(threshold);
+            clusterer.process(&entries);
+            let mut builder = OutputBuilder::new(entries);
+            if let Some(name) = filename { builder = builder.with_input_file(name); }
+            if let Some(b) = budget { builder = builder.with_budget(b); }
+            builder.build_from_clusters(&clusterer)
+        }
+        "ngram" => {
+            let ngram_size = *matches.get_one::<usize>("ngram_size").unwrap();
+            let outlier_threshold = *matches.get_one::<f64>("outlier_threshold").unwrap();
+            let mut detector = NgramOutlierDetector::new(ngram_size, outlier_threshold);
+            detector.process(&entries);
+            let mut builder = OutputBuilder::new(entries);
+            if let Some(name) = filename { builder = builder.with_input_file(name); }
+            if let Some(b) = budget { builder = builder.with_budget(b); }
+            builder.build_from_ngrams(&detector)
+        }
+        other => anyhow::bail!("Unknown algorithm: {other}"),
+    })
 }

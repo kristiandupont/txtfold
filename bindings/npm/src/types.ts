@@ -137,6 +137,8 @@ export interface ThresholdInfo {
 
 /** Options for process() and processMarkdown(). */
 export interface ProcessOptions {
+  /** Input format: "json", "line", or "block". Required. */
+  inputFormat: string;
   /** Algorithm to use. Default: "auto" (auto-detect). */
   algorithm?: string;
   /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */

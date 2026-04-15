@@ -1,4 +1,4 @@
-.PHONY: all build install schema types npm python web dev test clean
+.PHONY: all build install schema types wasm npm python web dev test clean
 
 # --- Rust -------------------------------------------------------------------
 
@@ -21,6 +21,11 @@ types: schema
 	bun tools/gen-types.ts
 
 # --- Language bindings ------------------------------------------------------
+
+# Rebuild only the WASM binaries and regenerate the JS/TS glue files.
+# Run this after any change to the core library's #[wasm_bindgen] API.
+wasm:
+	cd bindings/npm && bun run build:wasm && bun run build:wasm-web
 
 # Build the npm package (both WASM targets + TypeScript)
 npm: types
