@@ -2,6 +2,7 @@
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::HashSet;
 
 /// Compiled regex patterns for token classification
 /// Order matters - more specific patterns should be checked first
@@ -55,6 +56,26 @@ static HASH_SHA256: Lazy<Regex> = Lazy::new(|| {
 // Number patterns (integer or float)
 static NUMBER: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^-?\d+(\.\d+)?$").unwrap()
+});
+
+// 3-letter day-of-week and month abbreviations (case-insensitive).
+// These appear at the start of many log formats (e.g. Apache: "Sun Dec 04 …")
+// and should be treated as variable date components, not fixed literals.
+static DAY_ABBREVS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        .iter()
+        .copied()
+        .collect()
+});
+
+static MONTH_ABBREVS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    [
+        "jan", "feb", "mar", "apr", "may", "jun",
+        "jul", "aug", "sep", "oct", "nov", "dec",
+    ]
+    .iter()
+    .copied()
+    .collect()
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +138,17 @@ impl PatternMatcher {
         // Fallback: check for hex identifiers (8+ chars, all hex)
         if word.len() >= 8 && word.chars().all(|c| c.is_ascii_hexdigit()) {
             return PatternType::Identifier;
+        }
+
+        // 3-letter day-of-week and month abbreviations are date components and
+        // should be treated as variables so they don't fragment log groups.
+        // Check only after all more-specific patterns, and only for exactly
+        // 3-letter words to avoid false positives (e.g. "may" as a verb).
+        if word.len() == 3 {
+            let lower = word.to_lowercase();
+            if DAY_ABBREVS.contains(lower.as_str()) || MONTH_ABBREVS.contains(lower.as_str()) {
+                return PatternType::Timestamp;
+            }
         }
 
         PatternType::None
@@ -233,6 +265,47 @@ mod tests {
         assert_eq!(PatternMatcher::classify("hello"), PatternType::None);
         assert_eq!(PatternMatcher::classify("GET"), PatternType::None);
         assert_eq!(PatternMatcher::classify("/api/users"), PatternType::None);
+    }
+
+    #[test]
+    fn test_day_of_week_abbrevs() {
+        for day in &["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+                     "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+                     "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] {
+            assert_eq!(
+                PatternMatcher::classify(day),
+                PatternType::Timestamp,
+                "{} should be classified as Timestamp",
+                day
+            );
+        }
+    }
+
+    #[test]
+    fn test_month_abbrevs() {
+        for month in &["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                       "jan", "feb", "mar", "apr", "may", "jun",
+                       "jul", "aug", "sep", "oct", "nov", "dec"] {
+            assert_eq!(
+                PatternMatcher::classify(month),
+                PatternType::Timestamp,
+                "{} should be classified as Timestamp",
+                month
+            );
+        }
+    }
+
+    #[test]
+    fn test_day_month_abbrev_no_false_positives() {
+        // Longer words that start with day/month prefixes must NOT be matched
+        assert_eq!(PatternMatcher::classify("Monday"), PatternType::None);
+        assert_eq!(PatternMatcher::classify("January"), PatternType::None);
+        assert_eq!(PatternMatcher::classify("maybe"), PatternType::None);
+        assert_eq!(PatternMatcher::classify("mark"), PatternType::None);
+        // 3-letter non-day/month words must still be None
+        assert_eq!(PatternMatcher::classify("foo"), PatternType::None);
+        assert_eq!(PatternMatcher::classify("GET"), PatternType::None);
     }
 
     #[test]

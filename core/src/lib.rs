@@ -88,6 +88,57 @@ impl Default for ProcessOptions {
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
+/// Parse `"slot[N]"` → `Some(N)`, or `None` if the string is not that form.
+fn parse_slot_index(field: &str) -> Option<usize> {
+    let inner = field.strip_prefix("slot[")?.strip_suffix(']')?;
+    inner.parse().ok()
+}
+
+/// Group text entries by the value of their Nth non-whitespace token and return
+/// an `AnalysisOutput` structured like a `group_by` result.
+fn run_text_group_by(
+    entries: Vec<crate::entry::Entry>,
+    slot_idx: usize,
+    budget: Option<usize>,
+    input_file: Option<String>,
+) -> Result<crate::output::AnalysisOutput, String> {
+    use crate::output::OutputBuilder;
+    use crate::tokenizer::{Token, Tokenizer};
+    use std::collections::HashMap;
+
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut ungrouped: Vec<usize> = Vec::new();
+
+    for (idx, entry) in entries.iter().enumerate() {
+        let line = entry.first_line().unwrap_or("");
+        let tokens = Tokenizer::tokenize(line);
+        let meaningful: Vec<&Token> = tokens
+            .iter()
+            .filter(|t| !matches!(t, Token::Whitespace | Token::Punctuation(_)))
+            .collect();
+
+        if let Some(token) = meaningful.get(slot_idx) {
+            groups.entry(token.as_str().to_string()).or_default().push(idx);
+        } else {
+            ungrouped.push(idx);
+        }
+    }
+
+    // Sort by count descending; break ties alphabetically for determinism.
+    let mut sorted: Vec<(String, Vec<usize>)> = groups.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
+
+    let all_entries = entries.clone();
+    let mut builder = OutputBuilder::new(entries);
+    if let Some(name) = input_file {
+        builder = builder.with_input_file(name);
+    }
+    if let Some(b) = budget {
+        builder = builder.with_budget(b);
+    }
+    Ok(builder.build_from_entry_slot_groups(slot_idx, &sorted, &ungrouped, &all_entries))
+}
+
 /// Run a text algorithm on `entries` and return `AnalysisOutput`.
 fn run_text_algorithm(
     directive: &pipeline::AlgorithmDirective,
@@ -297,13 +348,27 @@ pub fn process_to_output(
             options.budget,
             input_file,
         )?,
-        PipelineInput::Text(entries) => run_text_algorithm(
-            &directive,
-            entries,
-            options.ngram_size,
-            options.outlier_threshold,
-            options.budget,
-        )?,
+        PipelineInput::Text(entries) => {
+            if let Some(ref field) = group_by_field {
+                // group_by(slot[N]) is the only supported grouping for text input.
+                if let Some(slot_idx) = parse_slot_index(field) {
+                    run_text_group_by(entries, slot_idx, options.budget, input_file.clone())?
+                } else {
+                    return Err(format!(
+                        "group_by(.{field}) requires JSON input; \
+                         use group_by(slot[N]) for line/block format"
+                    ));
+                }
+            } else {
+                run_text_algorithm(
+                    &directive,
+                    entries,
+                    options.ngram_size,
+                    options.outlier_threshold,
+                    options.budget,
+                )?
+            }
+        }
     };
 
     // Apply post-processing modifiers.
@@ -523,6 +588,109 @@ mod tests {
         let result = process(input, &options, "json").unwrap();
         assert!(result.contains("error"));
         assert!(result.contains("warn"));
+    }
+
+    /// Cost preview honours the pipeline expression.
+    ///
+    /// Without a pipeline, JSON defaults to the subtree algorithm which produces
+    /// PathGrouped output. With `group_by(.category)`, it produces Grouped output
+    /// partitioned by field value. The cost breakdowns must differ.
+    #[test]
+    fn test_group_by_slot_line_format() {
+        // slot[1] on "INFO ...", "ERROR ..." should group by INFO / ERROR
+        let input = "INFO user login\nINFO user logout\nERROR disk full\nERROR disk full\n";
+        let options = ProcessOptions {
+            input_format: InputFormat::Line,
+            pipeline_expr: Some("group_by(slot[0])".to_string()),
+            ..Default::default()
+        };
+        let output = process_to_output(input, &options, None).unwrap();
+        if let crate::output::AlgorithmResults::Grouped { groups, .. } = &output.results {
+            // Should have two groups: INFO and ERROR
+            assert_eq!(groups.len(), 2, "should have INFO and ERROR groups");
+            let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+            assert!(names.contains(&"ERROR"), "ERROR group expected");
+            assert!(names.contains(&"INFO"), "INFO group expected");
+            // ERROR has 2 entries → should sort first
+            assert_eq!(groups[0].name, "ERROR");
+        } else {
+            panic!("expected Grouped results");
+        }
+    }
+
+    #[test]
+    fn test_group_by_dot_field_on_text_errors() {
+        // .field syntax requires JSON; should give a helpful error for line format
+        let input = "INFO user login\nERROR disk full\n";
+        let options = ProcessOptions {
+            input_format: InputFormat::Line,
+            pipeline_expr: Some("group_by(.level)".to_string()),
+            ..Default::default()
+        };
+        let result = process_to_output(input, &options, None);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("JSON"), "error should mention JSON");
+        assert!(msg.contains("slot[N]"), "error should hint at slot[N] syntax");
+    }
+
+    #[test]
+    fn test_cost_preview_honours_pipeline() {
+        let input = r#"[
+            {"category": "error",   "msg": "disk full",       "code": 1},
+            {"category": "warning", "msg": "low memory",      "code": 2},
+            {"category": "error",   "msg": "network timeout", "code": 3}
+        ]"#;
+
+        let default_options = ProcessOptions {
+            input_format: InputFormat::Json,
+            ..Default::default()
+        };
+        let pipeline_options = ProcessOptions {
+            input_format: InputFormat::Json,
+            pipeline_expr: Some("group_by(.category)".to_string()),
+            ..Default::default()
+        };
+
+        let default_preview = cost_preview(input, &default_options).unwrap();
+        let pipeline_preview = cost_preview(input, &pipeline_options).unwrap();
+
+        // The two pipelines produce structurally different AlgorithmResults
+        // (PathGrouped vs Grouped), so the field sets must differ.
+        let default_paths: Vec<&str> = default_preview.fields.iter().map(|f| f.path.as_str()).collect();
+        let pipeline_paths: Vec<&str> = pipeline_preview.fields.iter().map(|f| f.path.as_str()).collect();
+        assert_ne!(
+            default_paths, pipeline_paths,
+            "cost preview should differ when the pipeline changes the algorithm"
+        );
+    }
+
+    /// Running cost-preview with a pipeline that is the same as the default
+    /// produces the same output as running without a pipeline (correct behaviour,
+    /// not a bug).
+    #[test]
+    fn test_cost_preview_patterns_equals_default_for_line() {
+        let input = "INFO user login\nINFO user login\nERROR disk full\n";
+
+        let default_options = ProcessOptions {
+            input_format: InputFormat::Line,
+            ..Default::default()
+        };
+        let explicit_options = ProcessOptions {
+            input_format: InputFormat::Line,
+            pipeline_expr: Some("patterns".to_string()),
+            ..Default::default()
+        };
+
+        let default_preview = cost_preview(input, &default_options).unwrap();
+        let explicit_preview = cost_preview(input, &explicit_options).unwrap();
+
+        // `patterns` is the default for line format, so both should agree.
+        assert_eq!(
+            default_preview.estimated_tokens,
+            explicit_preview.estimated_tokens,
+            "explicit 'patterns' pipeline should match the default for line format"
+        );
     }
 
     #[test]

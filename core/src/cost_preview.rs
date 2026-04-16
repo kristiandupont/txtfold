@@ -222,8 +222,17 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
     fields.sort_by(|a, b| b.tokens.cmp(&a.tokens).then(a.path.cmp(&b.path)));
 
     // Build suggestion for fields consuming >20% of the budget.
+    // For Grouped (patterns/clustering) and OutlierFocused (ngram) results the
+    // field names are internal struct labels (e.g. "pattern", "content") that
+    // do not correspond to any valid pipeline expression, so a `del(...)` hint
+    // would be actively misleading.  Suppress the suggestion for those types.
+    let suggestion_allowed = !matches!(
+        &analysis.results,
+        AlgorithmResults::Grouped { .. } | AlgorithmResults::OutlierFocused { .. }
+    );
+
     let noise: Vec<&FieldCost> = fields.iter().filter(|f| f.pct > 20.0).collect();
-    let suggestion = if noise.is_empty() {
+    let suggestion = if noise.is_empty() || !suggestion_allowed {
         None
     } else {
         // Count how many full paths share each terminal key name.
@@ -295,6 +304,12 @@ mod tests {
         // Percentages should sum to approximately 100
         let total_pct: f32 = preview.fields.iter().map(|f| f.pct).sum();
         assert!((total_pct - 100.0).abs() < 1.0);
+        // Suggestion must be suppressed for text output — field names like
+        // "pattern" and "content" are internal and not valid pipeline paths.
+        assert!(
+            preview.suggestion.is_none(),
+            "cost preview should not suggest del() for text/line output"
+        );
     }
 
     #[test]

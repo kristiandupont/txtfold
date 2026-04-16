@@ -53,7 +53,8 @@ If omitted, the default is `summarize` (json → subtree, line/block → templat
 | `outliers` | n-gram outlier detection |
 | `schemas` | JSON schema clustering |
 | `subtree` | JSON subtree algorithm |
-| `group_by(.field)` | value-based frequency table |
+| `group_by(.field)` | value-based frequency table (JSON) |
+| `group_by(slot[N])` | value-based frequency table by Nth token (line/block) |
 
 **Pre-processing stages** (JSON only):
 - `.field[]` / `.field[*]` / `.field[N]` — navigate into a JSON subtree
@@ -77,6 +78,8 @@ Path                            Types    Cardinality  Samples
 $.diagnostics[*].category       string             6  "error", "warning", …
 $.diagnostics[*].severity       number             3  "1", "2", "3"
 $.diagnostics[*].sourceCode     string          1842  "const x = …", …
+
+Pipeline selector: .diagnostics[]
 ```
 
 Use this first when you don't know the document structure, or to understand which fields are worth keeping before writing a pipeline expression.

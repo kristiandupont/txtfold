@@ -77,6 +77,20 @@ impl MarkdownFormatter {
             budget_suffix,
         ));
 
+        // High group-count hint — only for grouping result types (not outlier-focused),
+        // only when no top() was already applied.
+        const HIGH_GROUP_THRESHOLD: usize = 30;
+        let is_grouping_result = !matches!(&output.results, AlgorithmResults::OutlierFocused { .. });
+        if is_grouping_result
+            && group_count > HIGH_GROUP_THRESHOLD
+            && !output.metadata.algorithm.contains("top(")
+        {
+            md.push_str(&format!(
+                "> {} groups; consider adding `| top(20)` to your pipeline\n\n",
+                group_count,
+            ));
+        }
+
         // Results section
         match &output.results {
             AlgorithmResults::Grouped { groups, outliers } => {
@@ -143,6 +157,11 @@ impl MarkdownFormatter {
                     let value_str: Vec<String> =
                         values.iter().map(|v| format!("`{}`", v)).collect();
                     md.push_str(&value_str.join(", "));
+                    // A slot with exactly one distinct value is a constant in
+                    // this group — flag it so it is not mistaken for a variable.
+                    if values.len() == 1 {
+                        md.push_str(" (constant)");
+                    }
                     md.push_str("\n");
                 }
             }
@@ -183,11 +202,18 @@ impl MarkdownFormatter {
                 md.push_str("\n```\n\n");
             }
 
-            // Line ranges
+            // Line ranges — always show the first 3 spans so examples are
+            // locatable, then summarise the remainder to avoid flooding output.
             if !group.line_ranges.is_empty() {
+                const MAX_SHOWN_RANGES: usize = 3;
                 md.push_str("**Line ranges**: ");
-                let ranges: Vec<String> = group
+                let total_lines: usize = group
                     .line_ranges
+                    .iter()
+                    .map(|(s, e)| e - s + 1)
+                    .sum();
+                let shown = &group.line_ranges[..group.line_ranges.len().min(MAX_SHOWN_RANGES)];
+                let ranges: Vec<String> = shown
                     .iter()
                     .map(|(start, end)| {
                         if start == end {
@@ -198,6 +224,9 @@ impl MarkdownFormatter {
                     })
                     .collect();
                 md.push_str(&ranges.join(", "));
+                if group.line_ranges.len() > MAX_SHOWN_RANGES {
+                    md.push_str(&format!("  (\u{2026} {} total lines)", total_lines));
+                }
                 md.push_str("\n\n");
             }
 
@@ -479,6 +508,54 @@ mod tests {
     }
 
     #[test]
+    fn test_constant_variable_annotated() {
+        use crate::output::{GroupOutput, SampleEntry, AlgorithmResults, AnalysisMetadata};
+        use std::collections::HashMap;
+
+        // Build a sample where var_0 has one value (constant) and var_1 has two (varying).
+        let mut variable_values = HashMap::new();
+        variable_values.insert("var_0".to_string(), vec!["2005".to_string()]);
+        variable_values.insert("var_1".to_string(), vec!["error".to_string(), "warning".to_string()]);
+
+        let group = GroupOutput {
+            id: "group_0".to_string(),
+            name: "Apache log".to_string(),
+            pattern: "template".to_string(),
+            count: 10,
+            percentage: 100.0,
+            samples: vec![SampleEntry {
+                content: "Sun Dec 04 04:51:36 2005 [error] jk2_init found".to_string(),
+                line_numbers: vec![1],
+                variable_values,
+            }],
+            line_ranges: vec![(1, 10)],
+        };
+
+        let output = AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: None,
+                total_entries: 10,
+                algorithm: "template_extraction".to_string(),
+                reduction_ratio: 0.1,
+                budget_lines: None,
+                budget_applied: None,
+            },
+            summary: crate::output::AnalysisSummary {
+                unique_patterns: 1,
+                outliers: 0,
+                largest_cluster: 10,
+            },
+            results: AlgorithmResults::Grouped { groups: vec![group], outliers: vec![] },
+        };
+
+        let markdown = MarkdownFormatter::format(&output);
+        // var_0 has one value → should be labelled constant
+        assert!(markdown.contains("`2005` (constant)"), "single-value variable should be labelled constant");
+        // var_1 has two values → should NOT be labelled constant
+        assert!(!markdown.contains("`error` (constant)"), "multi-value variable should not be labelled constant");
+    }
+
+    #[test]
     fn test_markdown_formatter_outliers() {
         let entries = vec![
             Entry::from_line("INFO Normal message".to_string(), 1),
@@ -522,6 +599,61 @@ mod tests {
         assert!(markdown.contains("Line ranges"));
         assert!(markdown.contains("1-3"));
         assert!(markdown.contains("10-11"));
+        // Only 2 spans — no truncation annotation expected
+        assert!(!markdown.contains("total lines"));
+    }
+
+    #[test]
+    fn test_markdown_formatter_line_ranges_truncated() {
+        use crate::output::{GroupOutput, SampleEntry, AlgorithmResults, AnalysisMetadata};
+        use std::collections::HashMap;
+
+        // Build a group with 5 line-range spans — more than MAX_SHOWN_RANGES (3)
+        let group = GroupOutput {
+            id: "group_0".to_string(),
+            name: "Message".to_string(),
+            pattern: "Message".to_string(),
+            count: 10,
+            percentage: 100.0,
+            samples: vec![SampleEntry {
+                content: "Message".to_string(),
+                line_numbers: vec![1],
+                variable_values: HashMap::new(),
+            }],
+            line_ranges: vec![(1, 2), (10, 11), (20, 21), (30, 31), (40, 41)],
+        };
+
+        let output = AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: None,
+                total_entries: 10,
+                algorithm: "template_extraction".to_string(),
+                reduction_ratio: 0.1,
+                budget_lines: None,
+                budget_applied: None,
+            },
+            summary: crate::output::AnalysisSummary {
+                unique_patterns: 1,
+                outliers: 0,
+                largest_cluster: 10,
+            },
+            results: AlgorithmResults::Grouped {
+                groups: vec![group],
+                outliers: vec![],
+            },
+        };
+
+        let markdown = MarkdownFormatter::format(&output);
+
+        // First 3 spans shown
+        assert!(markdown.contains("1-2"));
+        assert!(markdown.contains("10-11"));
+        assert!(markdown.contains("20-21"));
+        // 4th and 5th spans suppressed
+        assert!(!markdown.contains("30-31"));
+        assert!(!markdown.contains("40-41"));
+        // Truncation annotation present with correct total (2+2+2+2+2 = 10)
+        assert!(markdown.contains("… 10 total lines"));
     }
 
     #[test]
@@ -625,6 +757,106 @@ mod tests {
         let markdown = MarkdownFormatter::format(&output);
 
         assert!(!markdown.contains("[budget:"));
+    }
+
+    #[test]
+    fn test_high_group_count_hint_shown() {
+        use crate::output::{GroupOutput, SampleEntry, AlgorithmResults, AnalysisMetadata};
+        use std::collections::HashMap;
+
+        // Build 31 groups — above the HIGH_GROUP_THRESHOLD of 30
+        let groups: Vec<GroupOutput> = (0..31)
+            .map(|i| GroupOutput {
+                id: format!("group_{}", i),
+                name: format!("Group {}", i),
+                pattern: format!("pattern {}", i),
+                count: 1,
+                percentage: 100.0 / 31.0,
+                samples: vec![SampleEntry {
+                    content: format!("entry {}", i),
+                    line_numbers: vec![i + 1],
+                    variable_values: HashMap::new(),
+                }],
+                line_ranges: vec![(i + 1, i + 1)],
+            })
+            .collect();
+
+        let output = AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: None,
+                total_entries: 31,
+                algorithm: "template_extraction".to_string(),
+                reduction_ratio: 1.0,
+                budget_lines: None,
+                budget_applied: None,
+            },
+            summary: crate::output::AnalysisSummary {
+                unique_patterns: 31,
+                outliers: 0,
+                largest_cluster: 1,
+            },
+            results: AlgorithmResults::Grouped { groups, outliers: vec![] },
+        };
+
+        let markdown = MarkdownFormatter::format(&output);
+        assert!(markdown.contains("31 groups; consider adding"), "hint should appear");
+        assert!(markdown.contains("top(20)"), "hint should mention top(20)");
+    }
+
+    #[test]
+    fn test_high_group_count_hint_suppressed_with_top() {
+        use crate::output::{GroupOutput, SampleEntry, AlgorithmResults, AnalysisMetadata};
+        use std::collections::HashMap;
+
+        let groups: Vec<GroupOutput> = (0..31)
+            .map(|i| GroupOutput {
+                id: format!("group_{}", i),
+                name: format!("Group {}", i),
+                pattern: format!("pattern {}", i),
+                count: 1,
+                percentage: 100.0 / 31.0,
+                samples: vec![SampleEntry {
+                    content: format!("entry {}", i),
+                    line_numbers: vec![i + 1],
+                    variable_values: HashMap::new(),
+                }],
+                line_ranges: vec![(i + 1, i + 1)],
+            })
+            .collect();
+
+        let output = AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: None,
+                total_entries: 31,
+                // Algorithm string already contains top() — hint should be suppressed
+                algorithm: "template_extraction | top(20)".to_string(),
+                reduction_ratio: 1.0,
+                budget_lines: None,
+                budget_applied: None,
+            },
+            summary: crate::output::AnalysisSummary {
+                unique_patterns: 31,
+                outliers: 0,
+                largest_cluster: 1,
+            },
+            results: AlgorithmResults::Grouped { groups, outliers: vec![] },
+        };
+
+        let markdown = MarkdownFormatter::format(&output);
+        assert!(!markdown.contains("consider adding"), "hint should be suppressed when top() used");
+    }
+
+    #[test]
+    fn test_high_group_count_hint_not_shown_below_threshold() {
+        // 30 groups — exactly at threshold, hint should NOT appear
+        let entries: Vec<_> = (0..30)
+            .map(|i| Entry::from_line(format!("Unique message {}", i), i + 1))
+            .collect();
+        let mut extractor = TemplateExtractor::new();
+        extractor.process(&entries);
+        let output = OutputBuilder::new(entries).build(&extractor);
+        let markdown = MarkdownFormatter::format(&output);
+        assert!(!markdown.contains("consider adding"), "hint should not appear at or below threshold");
     }
 
     #[test]

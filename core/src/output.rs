@@ -231,6 +231,27 @@ pub struct OutputBuilder {
     budget_lines: Option<usize>,
 }
 
+/// Collapse a sorted slice of line numbers into `(start, end)` range pairs.
+fn consecutive_ranges(line_numbers: &[usize]) -> Vec<(usize, usize)> {
+    if line_numbers.is_empty() {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut range_start = line_numbers[0];
+    let mut range_end = line_numbers[0];
+    for &n in &line_numbers[1..] {
+        if n == range_end + 1 {
+            range_end = n;
+        } else {
+            ranges.push((range_start, range_end));
+            range_start = n;
+            range_end = n;
+        }
+    }
+    ranges.push((range_start, range_end));
+    ranges
+}
+
 impl OutputBuilder {
     /// Create a new output builder
     pub fn new(entries: Vec<Entry>) -> Self {
@@ -1008,6 +1029,140 @@ impl OutputBuilder {
                 input_file: self.input_file,
                 total_entries,
                 algorithm: format!("group_by(.{})", field),
+                reduction_ratio,
+                budget_lines: self.budget_lines,
+                budget_applied,
+            },
+            summary: AnalysisSummary {
+                unique_patterns,
+                outliers: total_outliers,
+                largest_cluster,
+            },
+            results: AlgorithmResults::Grouped {
+                groups: group_outputs,
+                outliers,
+            },
+        }
+    }
+
+    /// Build output from text entries grouped by the value of their Nth
+    /// non-whitespace token (i.e. `group_by(slot[N])` on line/block format).
+    ///
+    /// `groups` is `(token_value, entry_indices)` pairs sorted by count descending.
+    /// `ungrouped` contains indices of entries that had no token at that slot.
+    /// `all_entries` is the full entry slice used for sample and line-range lookup.
+    pub fn build_from_entry_slot_groups(
+        self,
+        slot_idx: usize,
+        groups: &[(String, Vec<usize>)],
+        ungrouped: &[usize],
+        all_entries: &[crate::entry::Entry],
+    ) -> AnalysisOutput {
+        let total_entries = all_entries.len();
+        let mut group_outputs: Vec<GroupOutput> = Vec::new();
+        let mut largest_cluster = 0usize;
+
+        for (idx, (slot_value, entry_indices)) in groups.iter().enumerate() {
+            let count = entry_indices.len();
+            if count > largest_cluster {
+                largest_cluster = count;
+            }
+            let percentage = count as f64 / total_entries as f64 * 100.0;
+
+            // Line ranges from entry metadata
+            let mut line_numbers: Vec<usize> = entry_indices
+                .iter()
+                .filter_map(|&i| {
+                    all_entries.get(i)?.metadata.as_ref()?.line_numbers.first().copied()
+                })
+                .collect();
+            line_numbers.sort_unstable();
+            let line_ranges = consecutive_ranges(&line_numbers);
+
+            // Up to 3 sample entries
+            let samples: Vec<SampleEntry> = entry_indices
+                .iter()
+                .take(3)
+                .filter_map(|&i| all_entries.get(i))
+                .map(|e| SampleEntry {
+                    content: e.as_single_string(),
+                    line_numbers: e
+                        .metadata
+                        .as_ref()
+                        .map(|m| m.line_numbers.clone())
+                        .unwrap_or_default(),
+                    variable_values: HashMap::new(),
+                })
+                .collect();
+
+            group_outputs.push(GroupOutput {
+                id: format!("group_{}", idx),
+                name: slot_value.clone(),
+                pattern: format!("slot[{}] = {}", slot_idx, slot_value),
+                count,
+                percentage,
+                samples,
+                line_ranges,
+            });
+        }
+
+        // Entries with no token at the requested slot become outliers.
+        let outliers: Vec<OutlierOutput> = ungrouped
+            .iter()
+            .enumerate()
+            .filter_map(|(oi, &i)| {
+                all_entries.get(i).map(|e| OutlierOutput {
+                    id: format!("ungrouped_{}", oi),
+                    content: e.as_single_string(),
+                    line_number: e
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.line_numbers.first())
+                        .copied()
+                        .unwrap_or(i + 1),
+                    reason: format!("no token at slot[{}]", slot_idx),
+                    score: 0.0,
+                })
+            })
+            .collect();
+
+        let total_outliers = outliers.len();
+        let unique_patterns = group_outputs.len();
+
+        let original_size: usize = all_entries.iter().map(|e| e.as_single_string().len()).sum();
+        let reduced_size: usize = group_outputs
+            .iter()
+            .map(|g| g.pattern.len() + g.samples.iter().map(|s| s.content.len()).sum::<usize>())
+            .sum::<usize>();
+        let reduction_ratio = if original_size > 0 {
+            reduced_size as f64 / original_size as f64
+        } else {
+            0.0
+        };
+
+        // Apply budget.
+        let (group_outputs, outliers, budget_applied) = if let Some(budget) = self.budget_lines {
+            let fixed = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES;
+            let group_cap = Self::budget_capacity(budget, fixed, LINES_PER_GROUP);
+            let groups_trimmed = group_cap < group_outputs.len();
+            let mut gs = group_outputs;
+            gs.truncate(group_cap);
+            let used = fixed + gs.len() * LINES_PER_GROUP + SECTION_HEADER_LINES + 1;
+            let outlier_cap = Self::budget_capacity(budget, used, LINES_PER_OUTLIER);
+            let outliers_trimmed = outlier_cap < outliers.len();
+            let mut os = outliers;
+            os.truncate(outlier_cap);
+            let applied = groups_trimmed || outliers_trimmed;
+            (gs, os, Some(applied))
+        } else {
+            (group_outputs, outliers, None)
+        };
+
+        AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: self.input_file,
+                total_entries,
+                algorithm: format!("group_by(slot[{}])", slot_idx),
                 reduction_ratio,
                 budget_lines: self.budget_lines,
                 budget_applied,

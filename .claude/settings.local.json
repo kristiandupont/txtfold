@@ -6,7 +6,9 @@
     "allow": [
       "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
       "Bash(cargo test)",
-      "Bash(cargo build:*)"
+      "Bash(cargo build:*)",
+      "Bash(./target/debug/txtfold --syntax)",
+      "Bash(cargo test *)"
     ],
     "deny": [],
     "ask": []

@@ -301,7 +301,7 @@ impl Parser {
         }
     }
 
-    /// Parse `field_expr` = `"." ident` (single field name, for `group_by` / `label`).
+    /// Parse `field_expr` = `"." ident` (single field name, for `label`).
     fn parse_field_expr(&mut self) -> Result<String, ParseError> {
         self.expect(&Token::Dot)?;
         let pos = self.current_position();
@@ -316,6 +316,44 @@ impl Parser {
                 message: "expected field name after '.', got end of input".to_string(),
             }),
         }
+    }
+
+    /// Parse the argument to `group_by()`.
+    ///
+    /// Accepts either:
+    /// - `.field`   — JSON object field (existing behaviour)
+    /// - `slot[N]`  — Nth non-whitespace token of a line/block entry
+    fn parse_group_by_arg(&mut self) -> Result<String, ParseError> {
+        // Check for `slot[N]` — no leading dot, ident "slot" followed by `[`.
+        if matches!(self.peek(), Some(Token::Ident(s)) if s == "slot") {
+            if matches!(self.peek2(), Some(Token::LBracket)) {
+                self.advance(); // consume 'slot'
+                self.expect(&Token::LBracket)?;
+                let pos = self.current_position();
+                let n = match self.advance() {
+                    Some(Token::Integer(n)) => *n,
+                    Some(tok) => {
+                        return Err(ParseError {
+                            position: pos,
+                            message: format!(
+                                "expected integer index in slot[N], got {:?}", tok
+                            ),
+                        });
+                    }
+                    None => {
+                        return Err(ParseError {
+                            position: pos,
+                            message: "expected integer index in slot[N], got end of input"
+                                .to_string(),
+                        });
+                    }
+                };
+                self.expect(&Token::RBracket)?;
+                return Ok(format!("slot[{}]", n));
+            }
+        }
+        // Fall back to `.field` syntax for JSON.
+        self.parse_field_expr()
     }
 
     /// Parse a dotted field path for use in `del()`:
@@ -471,7 +509,7 @@ impl Parser {
                     "group_by" => {
                         self.advance(); // consume 'group_by'
                         self.expect(&Token::LParen)?;
-                        let field = self.parse_field_expr()?;
+                        let field = self.parse_group_by_arg()?;
                         self.expect(&Token::RParen)?;
                         Ok(Stage::GroupBy(field))
                     }
@@ -1073,6 +1111,25 @@ mod tests {
         assert_eq!(groups[0].1.len(), 2);
         assert_eq!(groups[1].0, "warn");
         assert_eq!(ungrouped.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_group_by_slot() {
+        let stages = parse_pipeline("group_by(slot[3])").unwrap();
+        assert_eq!(stages[0], Stage::GroupBy("slot[3]".to_string()));
+    }
+
+    #[test]
+    fn test_parse_group_by_slot_zero() {
+        let stages = parse_pipeline("group_by(slot[0])").unwrap();
+        assert_eq!(stages[0], Stage::GroupBy("slot[0]".to_string()));
+    }
+
+    #[test]
+    fn test_parse_group_by_slot_in_pipeline() {
+        let stages = parse_pipeline("group_by(slot[2]) | top(10)").unwrap();
+        assert_eq!(stages[0], Stage::GroupBy("slot[2]".to_string()));
+        assert_eq!(stages[1], Stage::Top(10));
     }
 
     #[test]

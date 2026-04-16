@@ -84,7 +84,8 @@ The terminal verb in the pipeline expression selects the algorithm. `--algorithm
 | `outliers` | n-gram outlier detection | |
 | `schemas` | schema clustering | JSON only |
 | `subtree` | subtree algorithm | JSON only |
-| `group_by(.f)` | value-based frequency table | |
+| `group_by(.f)` | value-based frequency table | JSON only |
+| `group_by(slot[N])` | value-based frequency table by Nth token | line/block only |
 
 If no pipeline is given, `summarize` is the implicit default.
 
@@ -110,8 +111,10 @@ verb          = del_verb | group_by_verb | label_verb | top_verb | algorithm_ver
 del_verb      = "del" "(" del_field_list ")"
 del_field_list = del_path ("," del_path)*
 del_path      = "." ident ("." ident)*        // dotted paths: del(.location.file)
-group_by_verb = "group_by" "(" field_expr ")"
+group_by_verb = "group_by" "(" group_by_arg ")"
 label_verb    = "label" "(" field_expr ")"
+group_by_arg  = field_expr                    // JSON: .field
+              | "slot" "[" integer "]"        // line/block: Nth non-whitespace token
 field_expr    = "." ident                     // single field name
 top_verb      = "top" "(" integer ")"
 algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
@@ -136,6 +139,8 @@ algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
 `cost_preview.rs` runs the full analysis pipeline and walks `AnalysisOutput` to compute a field-level token breakdown. Token count estimated as `chars / 4`. Fields consuming >20% of the total are flagged as noise candidates with a `del(...)` suggestion.
 
 For `PathGrouped` (subtree) results, field costs are keyed by the full normalized path (e.g. `$.diagnostics[*].location.sourceCode`) constructed from the pattern's container path plus the field name. The `del(...)` suggestion uses the shortest unambiguous form: the short field name if it appears at only one path, otherwise the full dotted path.
+
+For `Grouped` (template/clustering) and `OutlierFocused` (ngram) results, the `del(...)` suggestion is suppressed. The internal field names used in those result types (`pattern`, `content`, variable slot names) do not correspond to valid pipeline expressions, so a suggestion would be misleading.
 
 ## Algorithms
 

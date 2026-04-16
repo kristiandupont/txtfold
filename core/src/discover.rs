@@ -72,7 +72,8 @@ pub const HINTS_TEXT: &str = concat!(
     "  outliers           n-gram outlier detection      (line / block)\n",
     "  schemas            schema clustering             (json)\n",
     "  subtree            subtree pattern finder        (json)\n",
-    "  group_by(.f)       frequency table by field value (json / line / block)\n",
+    "  group_by(.f)       frequency table by field value           (json)\n",
+    "  group_by(slot[N])  frequency table by Nth token value (line / block)\n",
     "\n",
     "POST-PROCESSING (optional, after terminal verb)\n",
     "  top(N)             keep the N largest groups; collapse the rest\n",
@@ -156,6 +157,22 @@ impl DiscoverOutput {
                 types_w = types_w,
             )
             .unwrap();
+        }
+
+        // Pipeline selector hint — only meaningful for JSON input.
+        if self.format == "json" {
+            out.push('\n');
+            match pipeline_selector(&self.fields) {
+                Some(selector) => {
+                    writeln!(out, "Pipeline selector: {}", selector).unwrap();
+                }
+                None => {
+                    out.push_str(
+                        "Pipeline selector: \
+                         (top-level array — no path selection needed; use verbs directly)\n",
+                    );
+                }
+            }
         }
 
         out
@@ -294,6 +311,39 @@ fn collect_leaf_fields(
 /// - `"$.name"` → `None`
 fn nearest_array_path(path: &str) -> Option<&str> {
     path.rfind("[*]").map(|idx| &path[..idx + 3])
+}
+
+/// Derive a pipeline-ready path selector from a list of discovered fields.
+///
+/// Returns `Some(".foo[]")` when entries are nested inside a named array, or
+/// `None` when they live at the top level of a JSON array (no path selection
+/// needed — the user can write verbs directly).
+///
+/// The shallowest (shortest) array path is used because that is usually the
+/// natural "entry array" the user wants to analyse.
+fn pipeline_selector(fields: &[FieldSummary]) -> Option<String> {
+    // Collect every unique array-container path seen in the field list.
+    let mut array_paths: std::collections::BTreeSet<String> = Default::default();
+    for field in fields {
+        if let Some(p) = nearest_array_path(&field.path) {
+            array_paths.insert(p.to_string());
+        }
+    }
+    // Pick the shallowest path (shortest string length).
+    let shallowest = array_paths.iter().min_by_key(|p| p.len())?;
+
+    if shallowest == "$[*]" {
+        // Top-level array — no path selection needed.
+        None
+    } else {
+        // Strip the leading `$` and replace `[*]` with `[]` to produce a
+        // valid pipeline path expression, e.g. `$.foo[*]` → `.foo[]`.
+        let selector = shallowest
+            .strip_prefix('$')
+            .unwrap_or(shallowest)
+            .replace("[*]", "[]");
+        Some(selector)
+    }
 }
 
 fn json_type_name(value: &Value) -> &'static str {
@@ -531,6 +581,30 @@ mod tests {
         assert!(md.contains("Format: json"));
         assert!(md.contains("Entries: 2"));
         assert!(md.contains("$[*].name"));
+    }
+
+    #[test]
+    fn test_pipeline_selector_nested_array() {
+        let input = r#"{"diagnostics": [{"category": "error"}, {"category": "warning"}]}"#;
+        let out = discover(input, InputFormat::Json).unwrap();
+        let md = out.to_markdown();
+        assert!(md.contains("Pipeline selector: .diagnostics[]"), "nested array should show selector");
+    }
+
+    #[test]
+    fn test_pipeline_selector_top_level_array() {
+        let input = r#"[{"name": "alice"}, {"name": "bob"}]"#;
+        let out = discover(input, InputFormat::Json).unwrap();
+        let md = out.to_markdown();
+        assert!(md.contains("top-level array"), "top-level array should show no-selection-needed message");
+    }
+
+    #[test]
+    fn test_pipeline_selector_not_shown_for_line_format() {
+        let input = "INFO foo\nERROR bar\n";
+        let out = discover(input, InputFormat::Line).unwrap();
+        let md = out.to_markdown();
+        assert!(!md.contains("Pipeline selector"), "line format should not show pipeline selector");
     }
 
     #[test]
