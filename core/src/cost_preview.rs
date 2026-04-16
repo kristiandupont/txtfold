@@ -84,6 +84,30 @@ impl CostPreviewOutput {
     }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Strip the leading `$` / array-traversal segment from a full path so it can
+/// be used as a `del(...)` argument.
+///
+/// Examples:
+/// - `"$.diagnostics[*].sourceCode"` → `"diagnostics[*].sourceCode"`
+///   (but we only need the terminal: `"sourceCode"` if unique; this function
+///   is called when the terminal is ambiguous, so we return everything after
+///   `$. ` or `$`)
+///
+/// The goal is to produce a path that is valid as a dotted del argument, e.g.
+/// `.location.sourceCode` from `"$.root[*].location.sourceCode"`.
+fn strip_path_prefix(path: &str) -> &str {
+    // Strip leading `$.` or just `$`
+    if let Some(rest) = path.strip_prefix("$.") {
+        rest
+    } else if let Some(rest) = path.strip_prefix('$') {
+        rest.trim_start_matches('.')
+    } else {
+        path
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Compute a field-level cost breakdown from an `AnalysisOutput`.
@@ -114,9 +138,14 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
             singletons,
         } => {
             for pattern in patterns {
+                // Construct full paths: container_path.field_name
+                // e.g. pattern.paths[0] = "$.diagnostics[*]", field = "sourceCode"
+                // → full path = "$.diagnostics[*].sourceCode"
+                let container = pattern.paths.first().map(|s| s.as_str()).unwrap_or("$");
                 for (field, values) in &pattern.sample_values {
+                    let full_path = format!("{}.{}", container, field);
                     let chars: usize = values.iter().map(|v| v.len()).sum();
-                    *field_chars.entry(field.clone()).or_insert(0) += chars;
+                    *field_chars.entry(full_path).or_insert(0) += chars;
                 }
             }
             let singleton_chars: usize = singletons.iter().map(|s| s.content.len()).sum();
@@ -197,11 +226,34 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
     let suggestion = if noise.is_empty() {
         None
     } else {
+        // Count how many full paths share each terminal key name.
+        // If the terminal name is unique, suggest the short form `del(.name)`;
+        // otherwise use the dotted path after stripping the leading `$.` array
+        // bracket prefix.
+        let mut terminal_count: HashMap<String, usize> = HashMap::new();
+        for fc in &fields {
+            let terminal = fc.path.split('.').last().unwrap_or(&fc.path).to_string();
+            *terminal_count.entry(terminal).or_insert(0) += 1;
+        }
+
         let field_list = noise
             .iter()
-            .map(|f| format!(".{}", f.path))
+            .map(|f| {
+                let terminal = f.path.split('.').last().unwrap_or(&f.path);
+                if terminal_count.get(terminal).copied().unwrap_or(0) == 1 {
+                    // Unique terminal name — use short form.
+                    format!(".{}", terminal)
+                } else {
+                    // Ambiguous — use the dotted path, stripping the leading
+                    // `$.` (or `$[*].`, etc.) array-traversal prefix so the
+                    // suggestion stays valid as a del() argument.
+                    let dotted = strip_path_prefix(&f.path);
+                    format!(".{}", dotted)
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ");
+
         let noise_tokens: usize = noise.iter().map(|f| f.tokens).sum();
         let remaining = estimated_tokens.saturating_sub(noise_tokens);
         Some(format!("del({}) → ~{} tokens", field_list, remaining))

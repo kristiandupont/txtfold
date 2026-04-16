@@ -52,8 +52,10 @@ pub enum Stage {
     // ── Pre-processing ───────────────────────────────────────────────────────
     /// Navigate into a JSON subtree before analysis. JSON-only.
     PathSelect(Vec<PathSegment>),
-    /// Remove named fields from each JSON object. JSON-only.
-    Del(Vec<String>),
+    /// Remove fields (by dotted path) from each JSON object. JSON-only.
+    /// Each inner `Vec<String>` is the sequence of field-name segments in the path,
+    /// e.g. `del(.location.sourceCode)` → `vec![vec!["location", "sourceCode"]]`.
+    Del(Vec<Vec<String>>),
 
     // ── Algorithm selection ──────────────────────────────────────────────────
     /// Value-based frequency table grouped by a field. JSON (and future line/block).
@@ -299,7 +301,7 @@ impl Parser {
         }
     }
 
-    /// Parse `field_expr` = `"." ident`
+    /// Parse `field_expr` = `"." ident` (single field name, for `group_by` / `label`).
     fn parse_field_expr(&mut self) -> Result<String, ParseError> {
         self.expect(&Token::Dot)?;
         let pos = self.current_position();
@@ -316,12 +318,47 @@ impl Parser {
         }
     }
 
-    /// Parse `field_list` = `field_expr ("," field_expr)*`
-    fn parse_field_list(&mut self) -> Result<Vec<String>, ParseError> {
-        let mut fields = vec![self.parse_field_expr()?];
+    /// Parse a dotted field path for use in `del()`:
+    /// `"." ident ("." ident)*` → `Vec<String>` of path segments.
+    ///
+    /// Examples: `.sourceCode` → `["sourceCode"]`,
+    ///           `.location.sourceCode` → `["location", "sourceCode"]`.
+    fn parse_del_path_expr(&mut self) -> Result<Vec<String>, ParseError> {
+        self.expect(&Token::Dot)?;
+        let pos = self.current_position();
+        let first = match self.advance() {
+            Some(Token::Ident(name)) => name.clone(),
+            Some(tok) => {
+                let msg = format!("expected field name after '.', got {:?}", tok);
+                return Err(ParseError { position: pos, message: msg });
+            }
+            None => {
+                return Err(ParseError {
+                    position: pos,
+                    message: "expected field name after '.', got end of input".to_string(),
+                });
+            }
+        };
+
+        let mut segments = vec![first];
+        // Consume additional ".ident" segments.
+        while self.peek() == Some(&Token::Dot)
+            && matches!(self.peek2(), Some(Token::Ident(_)))
+        {
+            self.advance(); // consume '.'
+            if let Some(Token::Ident(name)) = self.advance() {
+                segments.push(name.clone());
+            }
+        }
+        Ok(segments)
+    }
+
+    /// Parse `del_field_list` = `del_path_expr ("," del_path_expr)*`
+    fn parse_del_field_list(&mut self) -> Result<Vec<Vec<String>>, ParseError> {
+        let mut fields = vec![self.parse_del_path_expr()?];
         while self.peek() == Some(&Token::Comma) {
             self.advance(); // consume ','
-            fields.push(self.parse_field_expr()?);
+            fields.push(self.parse_del_path_expr()?);
         }
         Ok(fields)
     }
@@ -427,7 +464,7 @@ impl Parser {
                     "del" => {
                         self.advance(); // consume 'del'
                         self.expect(&Token::LParen)?;
-                        let fields = self.parse_field_list()?;
+                        let fields = self.parse_del_field_list()?;
                         self.expect(&Token::RParen)?;
                         Ok(Stage::Del(fields))
                     }
@@ -680,27 +717,48 @@ fn apply_path_select(input: PipelineInput, segments: &[PathSegment]) -> Result<P
     }
 }
 
-fn apply_del(input: PipelineInput, fields: &[String]) -> Result<PipelineInput, String> {
+fn apply_del(input: PipelineInput, paths: &[Vec<String>]) -> Result<PipelineInput, String> {
     match input {
         PipelineInput::Json(values) => {
             let result = values
                 .into_iter()
                 .map(|v| {
-                    if let Value::Object(mut map) = v {
-                        for field in fields {
-                            map.remove(field);
-                        }
-                        Value::Object(map)
-                    } else {
-                        v
+                    let mut v = v;
+                    for path in paths {
+                        v = remove_at_path(v, path);
                     }
+                    v
                 })
                 .collect();
             Ok(PipelineInput::Json(result))
         }
-        PipelineInput::Text(_) => Err(
-            "del() is only valid for JSON input".to_string(),
-        ),
+        PipelineInput::Text(_) => Err("del() is only valid for JSON input".to_string()),
+    }
+}
+
+/// Recursively remove the field at `path` from `value`.
+///
+/// - Single-segment path: removes the key directly from the object.
+/// - Multi-segment path: traverses nested objects and removes the terminal key.
+/// - If any intermediate key is missing or the value is not an object: silently skip
+///   (same behaviour as jq `del`).
+fn remove_at_path(value: Value, path: &[String]) -> Value {
+    if path.is_empty() {
+        return value;
+    }
+    match value {
+        Value::Object(mut map) => {
+            if path.len() == 1 {
+                map.remove(&path[0]);
+            } else if let Some(nested) = map.remove(&path[0]) {
+                let updated = remove_at_path(nested, &path[1..]);
+                map.insert(path[0].clone(), updated);
+            }
+            // If the key doesn't exist, silently skip.
+            Value::Object(map)
+        }
+        // Not an object at this level — silently skip.
+        other => other,
     }
 }
 
@@ -789,7 +847,35 @@ mod tests {
     #[test]
     fn test_parse_del() {
         let stages = parse_pipeline("del(.sourceCode, .dictionary)").unwrap();
-        assert_eq!(stages[0], Stage::Del(vec!["sourceCode".to_string(), "dictionary".to_string()]));
+        assert_eq!(
+            stages[0],
+            Stage::Del(vec![
+                vec!["sourceCode".to_string()],
+                vec!["dictionary".to_string()],
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_del_dotted_path() {
+        let stages = parse_pipeline("del(.location.sourceCode)").unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Del(vec![vec!["location".to_string(), "sourceCode".to_string()]])
+        );
+    }
+
+    #[test]
+    fn test_parse_del_mixed_paths() {
+        let stages = parse_pipeline("del(.sourceCode, .location.file, .advices)").unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Del(vec![
+                vec!["sourceCode".to_string()],
+                vec!["location".to_string(), "file".to_string()],
+                vec!["advices".to_string()],
+            ])
+        );
     }
 
     #[test]
@@ -857,7 +943,7 @@ mod tests {
                 PathSegment::All,
             ])
         );
-        assert_eq!(stages[1], Stage::Del(vec!["sourceCode".to_string()]));
+        assert_eq!(stages[1], Stage::Del(vec![vec!["sourceCode".to_string()]]));
         assert_eq!(stages[2], Stage::GroupBy("category".to_string()));
     }
 
@@ -889,6 +975,43 @@ mod tests {
                 assert!(vals[0].get("a").is_some());
                 assert!(vals[0].get("b").is_none());
                 assert!(vals[0].get("c").is_some());
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_pipeline_del_dotted_path() {
+        let values = vec![serde_json::json!({
+            "category": "error",
+            "location": {"file": "main.rs", "line": 42}
+        })];
+        let stages = parse_pipeline("del(.location.file)").unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                // "category" untouched
+                assert_eq!(vals[0]["category"], "error");
+                // "location" still exists
+                assert!(vals[0].get("location").is_some());
+                // "location.file" removed
+                assert!(vals[0]["location"].get("file").is_none());
+                // "location.line" untouched
+                assert_eq!(vals[0]["location"]["line"], 42);
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_pipeline_del_missing_intermediate_key() {
+        // del(.a.b) where .a doesn't exist — should silently skip
+        let values = vec![serde_json::json!({"x": 1})];
+        let stages = parse_pipeline("del(.a.b)").unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals[0]["x"], 1);
             }
             _ => panic!("expected JSON output"),
         }

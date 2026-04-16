@@ -215,7 +215,7 @@ pub struct PathPatternOutput {
 // These are intentionally conservative estimates — the goal is a reliable upper
 // bound so the output stays within the caller's context window, not pixel-perfect
 // line counting.
-const FIXED_OVERHEAD_LINES: usize = 20; // title + metadata block + summary table
+const FIXED_OVERHEAD_LINES: usize = 4; // title line + blank + compact header line + blank
 const SECTION_HEADER_LINES: usize = 2; // "## Section\n\n"
 const LINES_PER_GROUP: usize = 15; // header + pattern + line ranges + 1 sample
 const LINES_PER_SCHEMA: usize = 12; // header + schema block + sample values
@@ -1473,16 +1473,16 @@ mod tests {
     #[test]
     fn test_budget_trims_groups() {
         // Budget = FIXED_OVERHEAD_LINES + SECTION_HEADER_LINES + 1 * LINES_PER_GROUP
-        //        = 20 + 2 + 15 = 37  →  only 1 of 3 groups fits.
+        //        = 4 + 2 + 15 = 21  →  only 1 of 3 groups fits.
         let entries = make_n_groups(3);
         let mut extractor = TemplateExtractor::new();
         extractor.process(&entries);
 
         let output = OutputBuilder::new(entries)
-            .with_budget(37)
+            .with_budget(21)
             .build_from_templates(&extractor);
 
-        assert_eq!(output.metadata.budget_lines, Some(37));
+        assert_eq!(output.metadata.budget_lines, Some(21));
         assert_eq!(output.metadata.budget_applied, Some(true));
 
         if let AlgorithmResults::Grouped { groups, .. } = &output.results {
@@ -1522,7 +1522,7 @@ mod tests {
         extractor.process(&entries);
 
         let output = OutputBuilder::new(entries)
-            .with_budget(37) // fits only 1 group
+            .with_budget(21) // fits only 1 group
             .build_from_templates(&extractor);
 
         // Summary should still report all 3 groups found
@@ -1554,7 +1554,7 @@ mod tests {
 
         // Budget fits exactly 1 group
         let output = OutputBuilder::new(entries)
-            .with_budget(37)
+            .with_budget(21)
             .build_from_templates(&extractor);
 
         if let AlgorithmResults::Grouped { groups, .. } = &output.results {
@@ -1581,9 +1581,9 @@ mod tests {
         detector.process(&entries);
 
         // Budget = fixed overhead only: no room for outliers.
-        // used = FIXED(20) + SECTION_HEADER(2) + BASELINE(15) + SECTION_HEADER(2) + 1 = 40
+        // used = FIXED(4) + SECTION_HEADER(2) + BASELINE(15) + SECTION_HEADER(2) + 1 = 24
         let output = OutputBuilder::new(entries)
-            .with_budget(40)
+            .with_budget(24)
             .build_from_ngrams(&detector);
 
         assert_eq!(output.metadata.budget_applied, Some(true));

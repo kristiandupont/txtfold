@@ -6,7 +6,7 @@ Identifies patterns and outliers in large log files and structured data. Convert
 
 - **Deterministic**: same input always produces same output
 - **Composable**: pipeline expressions select algorithms and pre-process data
-- **Transparent**: output explains decisions (algorithm used, reduction ratio, thresholds)
+- **Transparent**: output explains decisions (algorithm used, entry/group counts, thresholds)
 - **Fast enough**: can run multiple algorithms and still be practical
 
 ## Three-Layer Design
@@ -107,9 +107,12 @@ pipeline      = stage ("|" stage)*
 stage         = path_expr | verb
 path_expr     = "." ident ( "[" ("*" | integer | "") "]" )* ("." ident)*
 verb          = del_verb | group_by_verb | label_verb | top_verb | algorithm_verb
-del_verb      = "del" "(" field_list ")"
+del_verb      = "del" "(" del_field_list ")"
+del_field_list = del_path ("," del_path)*
+del_path      = "." ident ("." ident)*        // dotted paths: del(.location.file)
 group_by_verb = "group_by" "(" field_expr ")"
 label_verb    = "label" "(" field_expr ")"
+field_expr    = "." ident                     // single field name
 top_verb      = "top" "(" integer ")"
 algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
               | "outliers" | "schemas" | "subtree"
@@ -126,9 +129,13 @@ algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
 
 `discover.rs` implements a fast structural scan on the full document before any analysis. Produces `DiscoverOutput`: one `FieldSummary` per unique field path (JSON) or token slot position (line/block). For JSON, array indices are normalized to `[*]`. Records value types, cardinality (capped at 10,000), up to 5 samples, and `present_in_pct`.
 
+`DiscoverOutput::to_markdown()` renders the table. The pipeline syntax reference is available as the public constant `discover::HINTS_TEXT` and is printed by the CLI `--syntax` flag.
+
 ## Cost Preview
 
 `cost_preview.rs` runs the full analysis pipeline and walks `AnalysisOutput` to compute a field-level token breakdown. Token count estimated as `chars / 4`. Fields consuming >20% of the total are flagged as noise candidates with a `del(...)` suggestion.
+
+For `PathGrouped` (subtree) results, field costs are keyed by the full normalized path (e.g. `$.diagnostics[*].location.sourceCode`) constructed from the pattern's container path plus the field name. The `del(...)` suggestion uses the shortest unambiguous form: the short field name if it appears at only one path, otherwise the full dotted path.
 
 ## Algorithms
 

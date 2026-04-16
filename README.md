@@ -57,7 +57,7 @@ If omitted, the default is `summarize` (json → subtree, line/block → templat
 
 **Pre-processing stages** (JSON only):
 - `.field[]` / `.field[*]` / `.field[N]` — navigate into a JSON subtree
-- `del(.field, ...)` — remove fields from each JSON object
+- `del(.field, .nested.field, ...)` — remove fields from each JSON object; dotted paths supported
 
 **Post-processing modifiers**:
 - `top(N)` — keep the N largest groups
@@ -146,11 +146,12 @@ For files, format is inferred from the extension (`.json` → json, anything els
 --outlier-threshold 0.0  # N-gram cutoff (0.0 = auto)
 --entry-pattern <regex>  # Regex marking the start of each entry (block format)
 --budget <N>             # Maximum output lines
+--syntax                 # Print pipeline syntax reference and exit
 ```
 
 ## Output formats
 
-- `markdown` (default) — human-readable summary with reduction stats
+- `markdown` (default) — human-readable summary with a compact header line (`N entries → M groups  (algorithm)`) followed by pattern groups or outliers
 - `json` — structured output matching `output-schema.json`
 
 ## Language bindings

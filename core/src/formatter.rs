@@ -3,6 +3,22 @@
 use crate::metadata::FormatterMetadata;
 use crate::output::AnalysisOutput;
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Format a number with thousands separators, e.g. `1190` → `"1,190"`.
+fn format_count(n: usize) -> String {
+    let s = n.to_string();
+    let len = s.len();
+    let mut result = String::with_capacity(len + len / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
+}
+
 /// Markdown formatter for analysis output
 pub struct MarkdownFormatter;
 
@@ -22,51 +38,46 @@ impl MarkdownFormatter {
         let mut md = String::new();
 
         // Title
-        md.push_str("# txtfold Analysis Report\n\n");
+        md.push_str("# txtfold output\n\n");
 
-        // Metadata section
-        md.push_str("## Metadata\n\n");
-        if let Some(ref filename) = output.metadata.input_file {
-            md.push_str(&format!("- **Input file**: `{}`\n", filename));
-        }
-        md.push_str(&format!(
-            "- **Total entries**: {}\n",
-            output.metadata.total_entries
-        ));
-        md.push_str(&format!(
-            "- **Algorithm**: {}\n",
-            output.metadata.algorithm
-        ));
-        md.push_str(&format!(
-            "- **Reduction ratio**: {:.2}%\n",
-            output.metadata.reduction_ratio * 100.0
-        ));
-        if let Some(budget) = output.metadata.budget_lines {
-            let status = match output.metadata.budget_applied {
-                Some(true) => " (budget reached — output trimmed)",
-                _ => " (within budget)",
-            };
-            md.push_str(&format!("- **Budget**: {} lines{}\n", budget, status));
-        }
-        md.push_str("\n");
-
-        // Summary section
-        md.push_str("## Summary\n\n");
-        md.push_str("| Metric | Value |\n");
-        md.push_str("|--------|-------|\n");
-        md.push_str(&format!(
-            "| Unique patterns | {} |\n",
-            output.summary.unique_patterns
-        ));
-        md.push_str(&format!("| Outliers | {} |\n", output.summary.outliers));
-        md.push_str(&format!(
-            "| Largest cluster | {} |\n",
-            output.summary.largest_cluster
-        ));
-        md.push_str("\n");
-
-        // Results section - format based on algorithm type
+        // Compact metadata line: "N entries → M groups  (algorithm)  [budget: N lines]"
         use crate::output::AlgorithmResults;
+        let (group_count, group_label) = match &output.results {
+            AlgorithmResults::Grouped { groups, .. } => {
+                (groups.len(), if groups.len() == 1 { "group" } else { "groups" })
+            }
+            AlgorithmResults::SchemaGrouped { schemas, .. } => {
+                (schemas.len(), if schemas.len() == 1 { "schema" } else { "schemas" })
+            }
+            AlgorithmResults::PathGrouped { patterns, .. } => {
+                (patterns.len(), if patterns.len() == 1 { "pattern" } else { "patterns" })
+            }
+            AlgorithmResults::OutlierFocused { outliers, .. } => {
+                (outliers.len(), if outliers.len() == 1 { "outlier" } else { "outliers" })
+            }
+        };
+
+        let entry_word = if output.metadata.total_entries == 1 { "entry" } else { "entries" };
+
+        let budget_suffix = if output.metadata.budget_applied == Some(true) {
+            output.metadata.budget_lines
+                .map(|b| format!("  [budget: {} lines]", b))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        md.push_str(&format!(
+            "{} {} → {} {}  ({}){}\n\n",
+            format_count(output.metadata.total_entries),
+            entry_word,
+            group_count,
+            group_label,
+            output.metadata.algorithm,
+            budget_suffix,
+        ));
+
+        // Results section
         match &output.results {
             AlgorithmResults::Grouped { groups, outliers } => {
                 Self::format_grouped_results(&mut md, groups, outliers, &output.metadata.algorithm);
@@ -85,6 +96,69 @@ impl MarkdownFormatter {
         md
     }
 
+    /// Render sample entries with deduplication.
+    ///
+    /// Rules:
+    /// - All samples identical → show one + "(all N entries identical)"
+    /// - Fewer distinct than limit → show only the distinct ones
+    /// - More distinct than limit → show up to limit + "(+ M more distinct)"
+    fn format_samples(
+        md: &mut String,
+        samples: &[crate::output::SampleEntry],
+        group_count: usize,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+
+        // Deduplicate by content string.
+        let mut seen = std::collections::HashSet::new();
+        let distinct: Vec<&crate::output::SampleEntry> = samples
+            .iter()
+            .filter(|s| seen.insert(s.content.clone()))
+            .collect();
+
+        let num_samples = samples.len();
+        let num_distinct = distinct.len();
+
+        const SAMPLE_LIMIT: usize = 3;
+        let to_show = &distinct[..num_distinct.min(SAMPLE_LIMIT)];
+        let more = num_distinct.saturating_sub(SAMPLE_LIMIT);
+
+        if to_show.len() == 1 {
+            md.push_str("**Sample entry**:\n```\n");
+            md.push_str(&to_show[0].content);
+            md.push_str("\n```\n");
+
+            // Annotate when all samples were identical (implying all entries are).
+            if num_distinct == 1 && num_samples > 1 {
+                md.push_str(&format!("  (all {} entries identical)\n", group_count));
+            }
+
+            // Variable values (only populated by template extraction).
+            if !to_show[0].variable_values.is_empty() {
+                md.push_str("\n**Variable values**:\n");
+                for (var_name, values) in &to_show[0].variable_values {
+                    md.push_str(&format!("- `{}`: ", var_name));
+                    let value_str: Vec<String> =
+                        values.iter().map(|v| format!("`{}`", v)).collect();
+                    md.push_str(&value_str.join(", "));
+                    md.push_str("\n");
+                }
+            }
+        } else {
+            md.push_str("**Sample entries**:\n\n");
+            for (idx, sample) in to_show.iter().enumerate() {
+                md.push_str(&format!("*Sample {}*:\n```\n", idx + 1));
+                md.push_str(&sample.content);
+                md.push_str("\n```\n\n");
+            }
+            if more > 0 {
+                md.push_str(&format!("  (+ {} more distinct)\n", more));
+            }
+        }
+    }
+
     /// Format grouped results (template extraction, clustering)
     fn format_grouped_results(
         md: &mut String,
@@ -101,7 +175,7 @@ impl MarkdownFormatter {
                 group.name, group.count, group.percentage
             ));
 
-            // Pattern (only show for template extraction, skip for clustering since samples show it)
+            // Pattern (only show for template extraction, skip for clustering)
             let is_clustering = algorithm == "edit_distance_clustering";
             if !is_clustering {
                 md.push_str("**Pattern**:\n```\n");
@@ -127,34 +201,9 @@ impl MarkdownFormatter {
                 md.push_str("\n\n");
             }
 
-            // Sample entries
+            // Sample entries with deduplication
             if !group.samples.is_empty() {
-                if group.samples.len() == 1 {
-                    // Single sample: use "Sample entry" (singular)
-                    md.push_str("**Sample entry**:\n```\n");
-                    md.push_str(&group.samples[0].content);
-                    md.push_str("\n```\n");
-
-                    // Variable values
-                    if !group.samples[0].variable_values.is_empty() {
-                        md.push_str("\n**Variable values**:\n");
-                        for (var_name, values) in &group.samples[0].variable_values {
-                            md.push_str(&format!("- `{}`: ", var_name));
-                            let value_str: Vec<String> =
-                                values.iter().map(|v| format!("`{}`", v)).collect();
-                            md.push_str(&value_str.join(", "));
-                            md.push_str("\n");
-                        }
-                    }
-                } else {
-                    // Multiple samples: show each one
-                    md.push_str("**Sample entries**:\n\n");
-                    for (idx, sample) in group.samples.iter().enumerate() {
-                        md.push_str(&format!("*Sample {}*:\n```\n", idx + 1));
-                        md.push_str(&sample.content);
-                        md.push_str("\n```\n\n");
-                    }
-                }
+                Self::format_samples(md, &group.samples, group.count);
             }
 
             md.push_str("\n");
@@ -384,22 +433,19 @@ mod tests {
 
         let markdown = MarkdownFormatter::format(&output);
 
-        // Check that key sections are present
-        assert!(markdown.contains("# txtfold Analysis Report"));
-        assert!(markdown.contains("## Metadata"));
-        assert!(markdown.contains("## Summary"));
+        // Title changed
+        assert!(markdown.contains("# txtfold output"));
+        // Compact header line present
+        assert!(markdown.contains("entries →"));
+        assert!(markdown.contains("template_extraction"));
+        // Results sections still present
         assert!(markdown.contains("## Pattern Groups"));
         assert!(markdown.contains("## Outliers"));
-
-        // Check metadata
-        assert!(markdown.contains("test.log"));
-        assert!(markdown.contains("Total entries**: 3"));
-        assert!(markdown.contains("template_extraction"));
-
-        // Check summary table
-        assert!(markdown.contains("Unique patterns"));
-        assert!(markdown.contains("Outliers"));
-        assert!(markdown.contains("Largest cluster"));
+        // Old metadata/summary sections gone
+        assert!(!markdown.contains("# txtfold Analysis Report"));
+        assert!(!markdown.contains("## Metadata"));
+        assert!(!markdown.contains("## Summary"));
+        assert!(!markdown.contains("Unique patterns"));
     }
 
     #[test]
@@ -420,8 +466,8 @@ mod tests {
         assert!(markdown.contains("**Pattern**:"));
         assert!(markdown.contains("Request took <NUM> ms"));
 
-        // Should show count and percentage in header
-        assert!(markdown.contains("3 entries"));
+        // Compact header
+        assert!(markdown.contains("3 entries →"));
         assert!(markdown.contains("100.0%"));
 
         // Should show sample entry
@@ -511,8 +557,7 @@ mod tests {
 
         // Should not show outliers section if there are no outliers
         assert!(!markdown.contains("## Outliers"));
-        // But should still have the other sections
-        assert!(markdown.contains("## Summary"));
+        // But should still have the results section
         assert!(markdown.contains("## Pattern Groups"));
     }
 
@@ -527,8 +572,8 @@ mod tests {
         let markdown = MarkdownFormatter::format(&output);
 
         // Should not crash without input file
-        assert!(markdown.contains("# txtfold Analysis Report"));
-        assert!(markdown.contains("Total entries"));
+        assert!(markdown.contains("# txtfold output"));
+        assert!(markdown.contains("→")); // compact header line present
     }
 
     #[test]
@@ -544,16 +589,16 @@ mod tests {
         let mut extractor = TemplateExtractor::new();
         extractor.process(&entries);
 
-        // Budget tight enough to trim output
-        let output = OutputBuilder::new(entries).with_budget(37).build(&extractor);
+        // FIXED_OVERHEAD(4) + SECTION_HEADER(2) + 1 * LINES_PER_GROUP(15) = 21
+        // budget=21 fits exactly 1 of 2 groups → budget reached
+        let output = OutputBuilder::new(entries).with_budget(21).build(&extractor);
         let markdown = MarkdownFormatter::format(&output);
 
-        assert!(markdown.contains("**Budget**: 37 lines"));
-        assert!(markdown.contains("budget reached — output trimmed"));
+        assert!(markdown.contains("[budget: 21 lines]"));
     }
 
     #[test]
-    fn test_budget_within_limit_shown_in_markdown() {
+    fn test_budget_within_limit_not_shown_in_markdown() {
         let entries = vec![
             Entry::from_line("Only one group here".to_string(), 1),
             Entry::from_line("Only one group here".to_string(), 2),
@@ -565,12 +610,12 @@ mod tests {
         let output = OutputBuilder::new(entries).with_budget(200).build(&extractor);
         let markdown = MarkdownFormatter::format(&output);
 
-        assert!(markdown.contains("**Budget**: 200 lines"));
-        assert!(markdown.contains("within budget"));
+        // Budget not applied → no budget annotation in compact header
+        assert!(!markdown.contains("[budget:"));
     }
 
     #[test]
-    fn test_no_budget_line_without_budget() {
+    fn test_no_budget_annotation_without_budget() {
         let entries = vec![Entry::from_line("Message".to_string(), 1)];
 
         let mut extractor = TemplateExtractor::new();
@@ -579,7 +624,71 @@ mod tests {
         let output = OutputBuilder::new(entries).build(&extractor);
         let markdown = MarkdownFormatter::format(&output);
 
-        assert!(!markdown.contains("Budget"));
+        assert!(!markdown.contains("[budget:"));
+    }
+
+    #[test]
+    fn test_sample_dedup_all_identical() {
+        use crate::output::{GroupOutput, SampleEntry, AlgorithmResults, AnalysisMetadata};
+        use std::collections::HashMap;
+
+        // Build a GroupOutput with 3 identical samples
+        let identical_sample = SampleEntry {
+            content: r#"{"category":"error"}"#.to_string(),
+            line_numbers: vec![1],
+            variable_values: HashMap::new(),
+        };
+
+        let group = GroupOutput {
+            id: "group_0".to_string(),
+            name: "error".to_string(),
+            pattern: ".category = error".to_string(),
+            count: 100,
+            percentage: 100.0,
+            samples: vec![identical_sample.clone(), identical_sample.clone(), identical_sample],
+            line_ranges: vec![],
+        };
+
+        let output = AnalysisOutput {
+            metadata: AnalysisMetadata {
+                input_file: None,
+                total_entries: 100,
+                algorithm: "group_by(.category)".to_string(),
+                reduction_ratio: 0.1,
+                budget_lines: None,
+                budget_applied: None,
+            },
+            summary: crate::output::AnalysisSummary {
+                unique_patterns: 1,
+                outliers: 0,
+                largest_cluster: 100,
+            },
+            results: AlgorithmResults::Grouped {
+                groups: vec![group],
+                outliers: vec![],
+            },
+        };
+
+        let markdown = MarkdownFormatter::format(&output);
+
+        // Should show one sample and the "all identical" annotation
+        assert!(markdown.contains("**Sample entry**:"));
+        assert!(markdown.contains("(all 100 entries identical)"));
+        // Should NOT show "Sample entries" (plural)
+        assert!(!markdown.contains("**Sample entries**:"));
+        // Should NOT show duplicate samples
+        let count = markdown.matches(r#"{"category":"error"}"#).count();
+        assert_eq!(count, 1, "identical content should appear exactly once");
+    }
+
+    #[test]
+    fn test_format_count() {
+        assert_eq!(format_count(0), "0");
+        assert_eq!(format_count(999), "999");
+        assert_eq!(format_count(1000), "1,000");
+        assert_eq!(format_count(1190), "1,190");
+        assert_eq!(format_count(10000), "10,000");
+        assert_eq!(format_count(1000000), "1,000,000");
     }
 }
 

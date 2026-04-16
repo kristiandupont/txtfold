@@ -125,6 +125,12 @@ fn build_cli() -> Command {
                        Shows where the output budget is going and suggests \
                        del(...) candidates for noisy fields."),
         )
+        .arg(
+            Arg::new("syntax")
+                .long("syntax")
+                .action(clap::ArgAction::SetTrue)
+                .help("Print pipeline syntax reference and exit."),
+        )
         .after_help(
             "PIPELINE EXPRESSIONS\n\
              \n\
@@ -165,6 +171,13 @@ fn is_pipeline_expr(s: &str) -> bool {
 
 fn main() -> Result<()> {
     let matches = build_cli().get_matches();
+
+    // ── --syntax ──────────────────────────────────────────────────────────────
+    if matches.get_flag("syntax") {
+        print!("{}", txtfold::discover::HINTS_TEXT);
+        println!();
+        return Ok(());
+    }
 
     let output_format = matches.get_one::<String>("output-format").unwrap().as_str();
     let budget: Option<usize> = matches.get_one::<usize>("budget").copied();
