@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command};
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
 use txtfold::registry::{ALL_FORMATTERS, ALL_INPUT_FORMATS};
 use txtfold::{InputFormat, ProcessOptions};
@@ -202,6 +202,15 @@ fn main() -> Result<()> {
     };
 
     // ── Read input ────────────────────────────────────────────────────────────
+    // If there is no file argument and stdin is a TTY (interactive), the user
+    // ran txtfold with no input — show help rather than hanging waiting for
+    // stdin that will never come.
+    if file_arg.is_none() && io::stdin().is_terminal() {
+        build_cli().print_help()?;
+        println!();
+        return Ok(());
+    }
+
     let (content, filename, extension) = if let Some(path_str) = file_arg {
         let input_path = PathBuf::from(path_str);
         let content = fs::read_to_string(&input_path)
