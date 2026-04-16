@@ -1,1 +1,5 @@
-export { processFormatted } from "txtfold";
+export {
+  processFormatted,
+  discoverMarkdown,
+  costPreviewMarkdown,
+} from "txtfold";

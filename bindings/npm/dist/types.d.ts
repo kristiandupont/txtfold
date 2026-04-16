@@ -1,9 +1,3 @@
-/** Complete analysis output */
-export interface AnalysisOutput {
-    metadata: AnalysisMetadata;
-    results: AlgorithmResults;
-    summary: AnalysisSummary;
-}
 /** Pattern grouping with optional outliers (template extraction, clustering) */
 export interface GroupedResults {
     groups: GroupOutput[];
@@ -39,6 +33,12 @@ export interface AnalysisMetadata {
     reduction_ratio: number;
     total_entries: number;
 }
+/** Complete analysis output */
+export interface AnalysisOutput {
+    metadata: AnalysisMetadata;
+    results: AlgorithmResults;
+    summary: AnalysisSummary;
+}
 /** Summary statistics */
 export interface AnalysisSummary {
     largest_cluster: number;
@@ -52,6 +52,32 @@ export interface BaselineOutput {
     normal_count: number;
     normal_percentage: number;
     threshold?: ThresholdInfo | null;
+}
+/** Field-level token breakdown of an analysis result. */
+export interface CostPreviewOutput {
+    estimated_tokens: number;
+    fields: FieldCost[];
+    suggestion?: string | null;
+}
+/** Output of the discover operation — a compact structural schema map. */
+export interface DiscoverOutput {
+    entry_count: number;
+    fields: FieldSummary[];
+    format: string;
+}
+/** Token cost attributed to a single field across all groups/patterns. */
+export interface FieldCost {
+    path: string;
+    pct: number;
+    tokens: number;
+}
+/** Summary of a single field/slot discovered in the input. */
+export interface FieldSummary {
+    cardinality: number;
+    path: string;
+    present_in_pct: number;
+    samples: string[];
+    types: string[];
 }
 /** A single pattern group in the output */
 export interface GroupOutput {
@@ -113,14 +139,37 @@ export interface ThresholdInfo {
 }
 /** Options for process() and processMarkdown(). */
 export interface ProcessOptions {
-    /** Algorithm to use. Default: "auto" (auto-detect). */
-    algorithm?: string;
-    /** Similarity threshold for clustering/schema algorithms (0.0–1.0). Default: 0.8. */
-    threshold?: number;
-    /** N-gram size for the ngram algorithm. Default: 2. */
+    /** Input format: "json", "line", or "block". Required. */
+    inputFormat: string;
+    /** Pipeline expression selecting the algorithm and pre-processing steps.
+     *  Examples: "outliers", "similar(0.8) | top(20)",
+     *  ".diagnostics[] | del(.sourceCode) | group_by(.category)".
+     *  If omitted, defaults to summarize (json→subtree, line/block→template). */
+    pipeline?: string;
+    /** N-gram size for the 'outliers' verb. Default: 2. */
     ngramSize?: number;
-    /** Outlier threshold for ngram (0.0 = auto-detect). Default: 0.0. */
+    /** Outlier score threshold for the 'outliers' verb (0.0 = auto-detect). Default: 0.0. */
     outlierThreshold?: number;
+    /** Nesting depth for the 'subtree' verb. Default: 1. */
+    depth?: number;
     /** Maximum output lines. Most important groups shown first; output trimmed at limit. */
     budgetLines?: number;
+}
+/** Options for discover() and discoverMarkdown(). */
+export interface DiscoverOptions {
+    /** Input format: "json", "line", or "block". Required. */
+    inputFormat: string;
+}
+/** Options for costPreview() and costPreviewMarkdown(). */
+export interface CostPreviewOptions {
+    /** Input format: "json", "line", or "block". Required. */
+    inputFormat: string;
+    /** Pipeline expression (same syntax as ProcessOptions.pipeline). */
+    pipeline?: string;
+    /** N-gram size for the 'outliers' verb. Default: 2. */
+    ngramSize?: number;
+    /** Outlier score threshold for the 'outliers' verb (0.0 = auto-detect). Default: 0.0. */
+    outlierThreshold?: number;
+    /** Nesting depth for the 'subtree' verb. Default: 1. */
+    depth?: number;
 }

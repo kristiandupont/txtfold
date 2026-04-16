@@ -1,11 +1,12 @@
 import schema from "../schema.json";
 
+export type Mode = "analyze" | "discover" | "cost-preview";
+
 export interface State {
+  mode: Mode;
   inputFormat: string;
-  subOptions: Record<string, string>;
-  algorithm: string;
-  params: Record<string, number>;
-  budget: number | null;
+  pipeline: string;
+  budgetLines: number | null;
   outputFormat: string;
   input: string;
   output: string;
@@ -14,11 +15,10 @@ export interface State {
 }
 
 export const initialState: State = {
+  mode: "analyze",
   inputFormat: "line",
-  subOptions: {},
-  algorithm: "auto",
-  params: {},
-  budget: null,
+  pipeline: "",
+  budgetLines: null,
   outputFormat: schema.formatters[0].name,
   input: "",
   output: "",

@@ -1,6 +1,10 @@
 import type { Context } from "@b9g/crank";
 import { InputPanel } from "./InputPanel";
-import { processFormatted } from "./loadCore.js";
+import {
+  processFormatted,
+  discoverMarkdown,
+  costPreviewMarkdown,
+} from "./loadCore.js";
 import { OptionsPanel } from "./OptionsPanel";
 import { OutputPanel } from "./OutputPanel";
 import { initialState, type State } from "./State";
@@ -33,18 +37,29 @@ export function* App(this: Context) {
   const processText = async () => {
     setState({ processing: true, error: "", output: "" });
     try {
-      const result = await processFormatted(
-        state.input,
-        {
+      let result: string;
+
+      if (state.mode === "discover") {
+        result = await discoverMarkdown(state.input, {
           inputFormat: state.inputFormat,
-          algorithm: state.algorithm,
-          threshold: state.params["threshold"] ?? 0.8,
-          ngramSize: Math.round(state.params["ngram_size"] ?? 2),
-          outlierThreshold: state.params["outlier_threshold"] ?? 0.0,
-          budgetLines: state.budget ?? undefined,
-        },
-        state.outputFormat,
-      );
+        });
+      } else if (state.mode === "cost-preview") {
+        result = await costPreviewMarkdown(state.input, {
+          inputFormat: state.inputFormat,
+          pipeline: state.pipeline || undefined,
+        });
+      } else {
+        result = await processFormatted(
+          state.input,
+          {
+            inputFormat: state.inputFormat,
+            pipeline: state.pipeline || undefined,
+            budgetLines: state.budgetLines ?? undefined,
+          },
+          state.outputFormat,
+        );
+      }
+
       setState({ output: result, processing: false });
     } catch (e: unknown) {
       setState({ error: (e as Error).toString(), processing: false });
