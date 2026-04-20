@@ -44,12 +44,8 @@ pub struct DiscoverOutput {
     pub fields: Vec<FieldSummary>,
 }
 
-/// Pipeline syntax instructions embedded as an HTML comment when `--hints` is set.
-///
-/// HTML comments are invisible in rendered markdown but present in the raw string
-/// an LLM receives, so they cost tokens only in agentic use.
+/// Pipeline syntax instructions printed with "--syntax"
 pub const HINTS_TEXT: &str = concat!(
-    "<!--\n",
     "txtfold discover output — schema map of the input document.\n",
     "Use it to write a pipeline expression, then rerun without --discover.\n",
     "\n",
@@ -62,8 +58,12 @@ pub const HINTS_TEXT: &str = concat!(
     "  .foo[*]       same as .foo[]\n",
     "\n",
     "FILTER / RESHAPE\n",
-    "  del(.f)              remove field f from every entry\n",
-    "  del(.f, .g, .f.g)   remove multiple fields; dotted paths supported\n",
+    "  del(.f)                        remove field f from every entry\n",
+    "  del(.f, .g, .f.g)             remove multiple fields; dotted paths supported\n",
+    "  where(.f == \"v\")              keep entries where field equals value\n",
+    "  where(.f != \"v\")              keep entries where field differs\n",
+    "  where(.f contains \"substr\")   keep entries where field contains substring\n",
+    "  where(.f starts_with \"prefix\") / ends_with \"suffix\"\n",
     "\n",
     "TERMINAL VERB — pick exactly one; place it last; default is summarize\n",
     "  summarize          default algorithm for the declared format\n",
@@ -81,10 +81,10 @@ pub const HINTS_TEXT: &str = concat!(
     "\n",
     "EXAMPLES\n",
     "  '.diagnostics[] | del(.sourceCode, .advices) | group_by(.category)'\n",
+    "  '.diagnostics[] | where(.severity == \"error\") | group_by(.category)'\n",
     "  '.events[] | del(.timestamp, .requestId) | patterns'\n",
     "  'similar(0.8) | top(20)'\n",
-    "  'outliers'\n",
-    "-->"
+    "  'outliers'\n"
 );
 
 impl DiscoverOutput {
@@ -93,7 +93,24 @@ impl DiscoverOutput {
         use std::fmt::Write as _;
         let mut out = String::new();
 
-        writeln!(out, "Format: {}  |  Entries: {}", self.format, self.entry_count).unwrap();
+        // When there is exactly one entry and a nested array is present, the
+        // entry count is technically correct (one root object) but misleading —
+        // the user should use a path selector to reach the real entries.
+        let root_object_note = if self.format == "json"
+            && self.entry_count == 1
+            && pipeline_selector(&self.fields).is_some()
+        {
+            "  (root object — use path selector below)"
+        } else {
+            ""
+        };
+
+        writeln!(
+            out,
+            "Format: {}  |  Entries: {}{}",
+            self.format, self.entry_count, root_object_note
+        )
+        .unwrap();
 
         if self.fields.is_empty() {
             out.push_str("No fields found.\n");

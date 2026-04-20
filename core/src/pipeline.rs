@@ -46,6 +46,23 @@ pub enum PathSegment {
     Index(usize),
 }
 
+/// Comparison operator used in `where(...)` filter expressions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WhereOp {
+    Eq,
+    Ne,
+    Contains,
+    StartsWith,
+    EndsWith,
+}
+
+/// Right-hand-side value in a `where(...)` filter expression.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WhereValue {
+    String(String),
+    Number(f64),
+}
+
 /// A single stage in a pipeline.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stage {
@@ -56,6 +73,13 @@ pub enum Stage {
     /// Each inner `Vec<String>` is the sequence of field-name segments in the path,
     /// e.g. `del(.location.sourceCode)` → `vec![vec!["location", "sourceCode"]]`.
     Del(Vec<Vec<String>>),
+    /// Keep only entries where a field value matches a condition. JSON-only.
+    Where {
+        /// Dotted path to the field to test (same syntax as `del`).
+        field: Vec<String>,
+        op: WhereOp,
+        value: WhereValue,
+    },
 
     // ── Algorithm selection ──────────────────────────────────────────────────
     /// Value-based frequency table grouped by a field. JSON (and future line/block).
@@ -142,9 +166,12 @@ enum Token {
     Comma,
     Pipe,
     Star,
+    Eq,           // ==
+    Ne,           // !=
     Ident(String),
     Integer(usize),
     Float(f64),
+    StringLit(String),
 }
 
 struct Tokenizer<'a> {
@@ -235,6 +262,55 @@ impl<'a> Tokenizer<'a> {
                     })?;
                     Token::Integer(v)
                 }
+            }
+            '=' => {
+                self.advance_char();
+                if self.peek_char() == Some('=') {
+                    self.advance_char();
+                    Token::Eq
+                } else {
+                    return Err(ParseError {
+                        position: start,
+                        message: "unexpected '='; did you mean '=='?".to_string(),
+                    });
+                }
+            }
+            '!' => {
+                self.advance_char();
+                if self.peek_char() == Some('=') {
+                    self.advance_char();
+                    Token::Ne
+                } else {
+                    return Err(ParseError {
+                        position: start,
+                        message: "unexpected '!'; did you mean '!='?".to_string(),
+                    });
+                }
+            }
+            '"' => {
+                self.advance_char(); // consume opening quote
+                let mut s = String::new();
+                loop {
+                    match self.peek_char() {
+                        Some('"') => { self.advance_char(); break; }
+                        Some('\\') => {
+                            self.advance_char();
+                            match self.peek_char() {
+                                Some(c) => { self.advance_char(); s.push(c); }
+                                None => return Err(ParseError {
+                                    position: self.pos,
+                                    message: "unexpected end of input in string literal".to_string(),
+                                }),
+                            }
+                        }
+                        Some(c) => { self.advance_char(); s.push(c); }
+                        None => return Err(ParseError {
+                            position: self.pos,
+                            message: "unterminated string literal".to_string(),
+                        }),
+                    }
+                }
+                Token::StringLit(s)
             }
             other => {
                 return Err(ParseError {
@@ -581,10 +657,62 @@ impl Parser {
                         self.advance();
                         Ok(Stage::AlgorithmVerb(AlgorithmDirective::Subtree))
                     }
+                    "where" => {
+                        self.advance(); // consume 'where'
+                        self.expect(&Token::LParen)?;
+                        let field = self.parse_del_path_expr()?;
+                        // Parse operator: ==, !=, or keyword (contains, starts_with, ends_with)
+                        let op_pos = self.current_position();
+                        let op = match self.advance() {
+                            Some(Token::Eq) => WhereOp::Eq,
+                            Some(Token::Ne) => WhereOp::Ne,
+                            Some(Token::Ident(kw)) => match kw.as_str() {
+                                "contains"    => WhereOp::Contains,
+                                "starts_with" => WhereOp::StartsWith,
+                                "ends_with"   => WhereOp::EndsWith,
+                                other => {
+                                    let msg = format!(
+                                        "unknown where operator '{}'; expected ==, !=, \
+                                         contains, starts_with, or ends_with", other
+                                    );
+                                    return Err(ParseError { position: op_pos, message: msg });
+                                }
+                            },
+                            Some(tok) => {
+                                let msg = format!(
+                                    "expected operator (==, !=, contains, …), got {:?}", tok
+                                );
+                                return Err(ParseError { position: op_pos, message: msg });
+                            }
+                            None => return Err(ParseError {
+                                position: op_pos,
+                                message: "expected operator after field path in where()".to_string(),
+                            }),
+                        };
+                        // Parse value: string literal or number
+                        let val_pos = self.current_position();
+                        let value = match self.advance() {
+                            Some(Token::StringLit(s)) => WhereValue::String(s.clone()),
+                            Some(Token::Float(f))     => WhereValue::Number(*f),
+                            Some(Token::Integer(n))   => WhereValue::Number(*n as f64),
+                            Some(tok) => {
+                                let msg = format!(
+                                    "expected string or number value in where(), got {:?}", tok
+                                );
+                                return Err(ParseError { position: val_pos, message: msg });
+                            }
+                            None => return Err(ParseError {
+                                position: val_pos,
+                                message: "expected value in where()".to_string(),
+                            }),
+                        };
+                        self.expect(&Token::RParen)?;
+                        Ok(Stage::Where { field, op, value })
+                    }
                     other => Err(ParseError {
                         position: pos,
                         message: format!(
-                            "unknown verb '{}' — valid verbs: del, group_by, label, top, \
+                            "unknown verb '{}' — valid verbs: del, where, group_by, label, top, \
                              summarize, similar, patterns, outliers, schemas, subtree",
                             other
                         ),
@@ -670,6 +798,9 @@ pub fn apply_pipeline(
             }
             Stage::Del(fields) => {
                 input = apply_del(input, fields)?;
+            }
+            Stage::Where { field, op, value } => {
+                input = apply_where(input, field, op, value)?;
             }
             Stage::GroupBy(field) => {
                 group_by_field = Some(field.clone());
@@ -774,6 +905,58 @@ fn apply_del(input: PipelineInput, paths: &[Vec<String>]) -> Result<PipelineInpu
     }
 }
 
+fn apply_where(
+    input: PipelineInput,
+    field: &[String],
+    op: &WhereOp,
+    value: &WhereValue,
+) -> Result<PipelineInput, String> {
+    match input {
+        PipelineInput::Json(values) => {
+            let result = values
+                .into_iter()
+                .filter(|v| matches_where(v, field, op, value))
+                .collect();
+            Ok(PipelineInput::Json(result))
+        }
+        PipelineInput::Text(_) => Err("where() is only valid for JSON input".to_string()),
+    }
+}
+
+/// Evaluate a `where` predicate against a single JSON value.
+fn matches_where(v: &Value, field: &[String], op: &WhereOp, rhs: &WhereValue) -> bool {
+    let field_val = get_at_path(v, field);
+    let field_str = match field_val {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::Bool(b))   => b.to_string(),
+        Some(Value::Null)      => "null".to_string(),
+        _ => return false,
+    };
+    match (op, rhs) {
+        (WhereOp::Eq, WhereValue::String(s))  => &field_str == s,
+        (WhereOp::Ne, WhereValue::String(s))  => &field_str != s,
+        (WhereOp::Eq, WhereValue::Number(n))  => field_str.parse::<f64>().ok().as_ref() == Some(n),
+        (WhereOp::Ne, WhereValue::Number(n))  => field_str.parse::<f64>().ok().as_ref() != Some(n),
+        (WhereOp::Contains,   WhereValue::String(s)) => field_str.contains(s.as_str()),
+        (WhereOp::StartsWith, WhereValue::String(s)) => field_str.starts_with(s.as_str()),
+        (WhereOp::EndsWith,   WhereValue::String(s)) => field_str.ends_with(s.as_str()),
+        // Substring ops on numbers: coerce number to string and compare.
+        (WhereOp::Contains,   WhereValue::Number(n)) => field_str.contains(&n.to_string().as_str()),
+        (WhereOp::StartsWith, WhereValue::Number(n)) => field_str.starts_with(&n.to_string().as_str()),
+        (WhereOp::EndsWith,   WhereValue::Number(n)) => field_str.ends_with(&n.to_string().as_str()),
+    }
+}
+
+/// Walk a dotted path and return a reference to the value at that path, or
+/// `None` if any segment is missing or the value is not an object.
+fn get_at_path<'a>(mut v: &'a Value, path: &[String]) -> Option<&'a Value> {
+    for seg in path {
+        v = v.as_object()?.get(seg)?;
+    }
+    Some(v)
+}
+
 /// Recursively remove the field at `path` from `value`.
 ///
 /// - Single-segment path: removes the key directly from the object.
@@ -846,8 +1029,8 @@ pub fn is_verb_name(s: &str) -> bool {
     matches!(
         s,
         "summarize" | "similar" | "patterns" | "outliers"
-            | "schemas" | "subtree" | "del" | "group_by"
-            | "label" | "top"
+            | "schemas" | "subtree" | "del" | "where"
+            | "group_by" | "label" | "top"
     )
 }
 
@@ -1130,6 +1313,179 @@ mod tests {
         let stages = parse_pipeline("group_by(slot[2]) | top(10)").unwrap();
         assert_eq!(stages[0], Stage::GroupBy("slot[2]".to_string()));
         assert_eq!(stages[1], Stage::Top(10));
+    }
+
+    #[test]
+    fn test_parse_where_eq() {
+        let stages = parse_pipeline(r#"where(.severity == "error")"#).unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Where {
+                field: vec!["severity".to_string()],
+                op: WhereOp::Eq,
+                value: WhereValue::String("error".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_where_ne() {
+        let stages = parse_pipeline(r#"where(.category != "lint")"#).unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Where {
+                field: vec!["category".to_string()],
+                op: WhereOp::Ne,
+                value: WhereValue::String("lint".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_where_contains() {
+        let stages = parse_pipeline(r#"where(.file contains "src/")"#).unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Where {
+                field: vec!["file".to_string()],
+                op: WhereOp::Contains,
+                value: WhereValue::String("src/".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_where_dotted_path() {
+        let stages = parse_pipeline(r#"where(.location.file starts_with "src")"#).unwrap();
+        assert_eq!(
+            stages[0],
+            Stage::Where {
+                field: vec!["location".to_string(), "file".to_string()],
+                op: WhereOp::StartsWith,
+                value: WhereValue::String("src".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_where_in_pipeline() {
+        let stages =
+            parse_pipeline(r#".diagnostics[] | where(.severity == "error") | group_by(.category)"#)
+                .unwrap();
+        assert_eq!(stages.len(), 3);
+        assert!(matches!(stages[1], Stage::Where { .. }));
+    }
+
+    #[test]
+    fn test_apply_where_eq() {
+        let values = vec![
+            serde_json::json!({"level": "error", "msg": "a"}),
+            serde_json::json!({"level": "warn",  "msg": "b"}),
+            serde_json::json!({"level": "error", "msg": "c"}),
+        ];
+        let stages = parse_pipeline(r#"where(.level == "error")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 2);
+                assert!(vals.iter().all(|v| v["level"] == "error"));
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_where_ne() {
+        let values = vec![
+            serde_json::json!({"level": "error"}),
+            serde_json::json!({"level": "warn"}),
+            serde_json::json!({"level": "info"}),
+        ];
+        let stages = parse_pipeline(r#"where(.level != "error")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 2);
+                assert!(vals.iter().all(|v| v["level"] != "error"));
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_where_contains() {
+        let values = vec![
+            serde_json::json!({"path": "src/app/main.ts"}),
+            serde_json::json!({"path": "e2e/results/trace.html"}),
+            serde_json::json!({"path": "src/lib/utils.ts"}),
+        ];
+        let stages = parse_pipeline(r#"where(.path contains "src/")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 2);
+                assert!(vals.iter().all(|v| v["path"].as_str().unwrap().contains("src/")));
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_where_starts_with() {
+        let values = vec![
+            serde_json::json!({"file": "src/app.ts"}),
+            serde_json::json!({"file": "prisma/seed.ts"}),
+        ];
+        let stages = parse_pipeline(r#"where(.file starts_with "src")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 1);
+                assert_eq!(vals[0]["file"], "src/app.ts");
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_where_ends_with() {
+        let values = vec![
+            serde_json::json!({"file": "src/app.ts"}),
+            serde_json::json!({"file": "src/comp.tsx"}),
+        ];
+        let stages = parse_pipeline(r#"where(.file ends_with ".tsx")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 1);
+                assert_eq!(vals[0]["file"], "src/comp.tsx");
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_apply_where_dotted_path() {
+        let values = vec![
+            serde_json::json!({"location": {"file": "src/main.ts"}}),
+            serde_json::json!({"location": {"file": "e2e/trace.html"}}),
+        ];
+        let stages = parse_pipeline(r#"where(.location.file starts_with "src")"#).unwrap();
+        let result = apply_pipeline(&stages, PipelineInput::Json(values)).unwrap();
+        match result.input {
+            PipelineInput::Json(vals) => {
+                assert_eq!(vals.len(), 1);
+            }
+            _ => panic!("expected JSON output"),
+        }
+    }
+
+    #[test]
+    fn test_where_on_text_input_errors() {
+        let stages = parse_pipeline(r#"where(.x == "y")"#).unwrap();
+        let entries: Vec<Entry> = vec![];
+        let err = apply_pipeline(&stages, PipelineInput::Text(entries)).unwrap_err();
+        assert!(err.contains("JSON"));
     }
 
     #[test]

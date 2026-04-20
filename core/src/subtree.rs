@@ -183,7 +183,24 @@ fn collect_samples(
                 Value::Number(n) => n.to_string(),
                 Value::Bool(b) => b.to_string(),
                 Value::Null => "null".to_string(),
-                Value::Array(_) => "[...]".to_string(),
+                Value::Array(arr) => {
+                    // Serialize small all-number arrays inline so downstream
+                    // passes (e.g. cost_preview) can recognise numeric-offset
+                    // fields.  Large or mixed-type arrays stay as "[...]".
+                    if arr.len() <= 8 && arr.iter().all(|e| e.is_number()) {
+                        let nums: Vec<String> = arr
+                            .iter()
+                            .filter_map(|e| e.as_i64().map(|n| n.to_string()))
+                            .collect();
+                        if nums.len() == arr.len() {
+                            format!("[{}]", nums.join(", "))
+                        } else {
+                            "[...]".to_string()
+                        }
+                    } else {
+                        "[...]".to_string()
+                    }
+                }
                 Value::Object(_) => "{...}".to_string(),
             };
             let entry = samples.entry(field.clone()).or_default();

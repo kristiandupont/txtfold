@@ -107,10 +107,13 @@ Two levels of selection:
 pipeline      = stage ("|" stage)*
 stage         = path_expr | verb
 path_expr     = "." ident ( "[" ("*" | integer | "") "]" )* ("." ident)*
-verb          = del_verb | group_by_verb | label_verb | top_verb | algorithm_verb
+verb          = del_verb | where_verb | group_by_verb | label_verb | top_verb | algorithm_verb
 del_verb      = "del" "(" del_field_list ")"
 del_field_list = del_path ("," del_path)*
 del_path      = "." ident ("." ident)*        // dotted paths: del(.location.file)
+where_verb    = "where" "(" del_path op value ")"
+op            = "==" | "!=" | "contains" | "starts_with" | "ends_with"
+value         = string_literal | number_literal
 group_by_verb = "group_by" "(" group_by_arg ")"
 label_verb    = "label" "(" field_expr ")"
 group_by_arg  = field_expr                    // JSON: .field
@@ -122,7 +125,7 @@ algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
 ```
 
 **Stage taxonomy**:
-- **Pre-processing** (`PathSelect`, `Del`) — transform input before the algorithm sees it. JSON-only.
+- **Pre-processing** (`PathSelect`, `Del`, `Where`) — transform input before the algorithm sees it. JSON-only.
 - **Algorithm selection** (`AlgorithmVerb`, `GroupBy`) — the terminal verb drives algorithm selection.
 - **Post-processing** (`Top`, `Label`) — applied to `AnalysisOutput` after the algorithm runs.
 
@@ -138,7 +141,11 @@ algorithm_verb = "summarize" | "similar" "(" float ")" | "patterns"
 
 `cost_preview.rs` runs the full analysis pipeline and walks `AnalysisOutput` to compute a field-level token breakdown. Token count estimated as `chars / 4`. Fields consuming >20% of the total are flagged as noise candidates with a `del(...)` suggestion.
 
-For `PathGrouped` (subtree) results, field costs are keyed by the full normalized path (e.g. `$.diagnostics[*].location.sourceCode`) constructed from the pattern's container path plus the field name. The `del(...)` suggestion uses the shortest unambiguous form: the short field name if it appears at only one path, otherwise the full dotted path.
+For `PathGrouped` (subtree) results, field costs are keyed by the full normalized path (e.g. `$.diagnostics[*].location.sourceCode`). The `del(...)` suggestion converts each noisy path to a pipeline-compatible argument via `path_to_del_arg`: strips the `$[*].` entry-array prefix and, for paths containing nested `[*]` array traversal, truncates to the nearest deletable ancestor (e.g. `$[*].advices.advices[*].frame.sourceCode` → `del(.advices.advices)`). Duplicate ancestors from multiple noisy paths are deduplicated. Pseudo-fields `(singletons)` and `(outliers)` are never included in suggestions.
+
+Fields whose sample values are all small numeric arrays (e.g. `[5787, 5810]`) are annotated `← numeric offsets (visual noise)` regardless of token cost, since they add visual noise to every sample entry.
+
+When the entire document is a single root object with no path selector, the `(singletons)` bucket absorbs all content and the token estimate is meaningless. In this case a warning is emitted, the `del(...)` suggestion is suppressed, and the user is directed to run `--discover` first.
 
 For `Grouped` (template/clustering) and `OutlierFocused` (ngram) results, the `del(...)` suggestion is suppressed. The internal field names used in those result types (`pattern`, `content`, variable slot names) do not correspond to valid pipeline expressions, so a suggestion would be misleading.
 

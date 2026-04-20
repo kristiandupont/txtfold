@@ -59,6 +59,7 @@ If omitted, the default is `summarize` (json → subtree, line/block → templat
 **Pre-processing stages** (JSON only):
 - `.field[]` / `.field[*]` / `.field[N]` — navigate into a JSON subtree
 - `del(.field, .nested.field, ...)` — remove fields from each JSON object; dotted paths supported
+- `where(.field == "value")` — keep only entries matching a condition; operators: `==`, `!=`, `contains`, `starts_with`, `ends_with`
 
 **Post-processing modifiers**:
 - `top(N)` — keep the N largest groups

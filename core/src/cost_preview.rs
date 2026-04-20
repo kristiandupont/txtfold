@@ -21,6 +21,10 @@ pub struct FieldCost {
     pub tokens: usize,
     /// Percentage of total estimated tokens.
     pub pct: f32,
+    /// Optional annotation explaining why this field is worth deleting even
+    /// if its token cost is low (e.g. numeric offset arrays that add visual noise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Field-level token breakdown of an analysis result.
@@ -34,6 +38,10 @@ pub struct CostPreviewOutput {
     /// Suggested `del(...)` expression when noisy fields are found.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    /// Warning emitted when the result is not actionable (e.g. single root object
+    /// with no path selector — the entire file lands in one bucket).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 impl CostPreviewOutput {
@@ -41,6 +49,11 @@ impl CostPreviewOutput {
     pub fn to_markdown(&self) -> String {
         use std::fmt::Write as _;
         let mut out = String::new();
+
+        if let Some(ref warning) = self.warning {
+            writeln!(out, "\u{26a0}  {}", warning).unwrap();
+            out.push('\n');
+        }
 
         writeln!(out, "Estimated output: ~{} tokens", self.estimated_tokens).unwrap();
         writeln!(out, "{}", "\u{2500}".repeat(40)).unwrap();
@@ -58,10 +71,12 @@ impl CostPreviewOutput {
                 .max(4);
 
             for field in &self.fields {
-                let noise = if field.pct > 20.0 {
-                    "  \u{2190} noise candidate"
+                let annotation = if let Some(ref note) = field.note {
+                    format!("  \u{2190} {}", note)
+                } else if field.pct > 20.0 {
+                    "  \u{2190} noise candidate".to_string()
                 } else {
-                    ""
+                    String::new()
                 };
                 writeln!(
                     out,
@@ -69,7 +84,7 @@ impl CostPreviewOutput {
                     field.path,
                     field.tokens,
                     field.pct,
-                    noise,
+                    annotation,
                     name_w = name_w,
                 )
                 .unwrap();
@@ -86,26 +101,66 @@ impl CostPreviewOutput {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Strip the leading `$` / array-traversal segment from a full path so it can
-/// be used as a `del(...)` argument.
+/// Return true if all non-empty sample values look like JSON arrays of numbers:
+/// `[42, 45]`, `[0]`, `[100, 200, 300]`.  Used to identify byte-offset / span
+/// fields that are visually noisy even though they are cheap in tokens.
+fn is_numeric_array_samples(values: &[String]) -> bool {
+    if values.is_empty() {
+        return false;
+    }
+    values.iter().all(|v| {
+        let v = v.trim();
+        v.starts_with('[')
+            && v.ends_with(']')
+            && v[1..v.len() - 1]
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ',' || c == ' ')
+    })
+}
+
+/// Convert a full JSONPath stored in a `FieldCost` into a pipeline-compatible
+/// `del(...)` argument.
+///
+/// Steps:
+/// 1. Strip the leading `$[*].` entry-array prefix (produced by subtree after
+///    path selection).
+/// 2. If the field path contains a nested `[*]` array traversal, use only the
+///    portion before it — the deepest ancestor that `del` can target with a
+///    simple dotted path.
+/// 3. Prepend `.`.
+///
+/// Returns `None` if the path cannot be expressed as a valid del argument
+/// (e.g. the path is the entry root itself, or does not start with `$[*]`).
 ///
 /// Examples:
-/// - `"$.diagnostics[*].sourceCode"` → `"diagnostics[*].sourceCode"`
-///   (but we only need the terminal: `"sourceCode"` if unique; this function
-///   is called when the terminal is ambiguous, so we return everything after
-///   `$. ` or `$`)
-///
-/// The goal is to produce a path that is valid as a dotted del argument, e.g.
-/// `.location.sourceCode` from `"$.root[*].location.sourceCode"`.
-fn strip_path_prefix(path: &str) -> &str {
-    // Strip leading `$.` or just `$`
-    if let Some(rest) = path.strip_prefix("$.") {
-        rest
-    } else if let Some(rest) = path.strip_prefix('$') {
-        rest.trim_start_matches('.')
+/// - `"$[*].location.sourceCode"`               → `".location.sourceCode"`
+/// - `"$[*].location.path.file"`                → `".location.path.file"`
+/// - `"$[*].advices.advices[*].frame.sourceCode"` → `".advices.advices"`
+fn path_to_del_arg(path: &str) -> Option<String> {
+    // Strip leading `$` then the first `[*]` entry-array selector.
+    let after_dollar = path.strip_prefix('$')?;
+    let after_entry = if let Some(rest) = after_dollar.strip_prefix("[*]") {
+        rest.strip_prefix('.').unwrap_or(rest)
     } else {
-        path
+        return None; // Not a `$[*]…` path — skip.
+    };
+
+    if after_entry.is_empty() {
+        return None; // Path points to the entry itself, not a field within it.
     }
+
+    // If the field path contains a nested array traversal, truncate before it.
+    let del_path = if let Some(array_pos) = after_entry.find("[*]") {
+        after_entry[..array_pos].trim_end_matches('.')
+    } else {
+        after_entry
+    };
+
+    if del_path.is_empty() {
+        return None;
+    }
+
+    Some(format!(".{}", del_path))
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -116,6 +171,8 @@ fn strip_path_prefix(path: &str) -> &str {
 /// for English-language and code content.
 pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
     let mut field_chars: HashMap<String, usize> = HashMap::new();
+    // Optional annotation per path (e.g. "numeric offsets (visual noise)").
+    let mut field_notes: HashMap<String, String> = HashMap::new();
 
     match &analysis.results {
         AlgorithmResults::SchemaGrouped { schemas, outliers } => {
@@ -145,7 +202,14 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
                 for (field, values) in &pattern.sample_values {
                     let full_path = format!("{}.{}", container, field);
                     let chars: usize = values.iter().map(|v| v.len()).sum();
-                    *field_chars.entry(full_path).or_insert(0) += chars;
+                    *field_chars.entry(full_path.clone()).or_insert(0) += chars;
+                    // Flag fields whose samples are all numeric arrays — byte offsets
+                    // and span pairs that are visually noisy even though cheap in tokens.
+                    if is_numeric_array_samples(values) {
+                        field_notes
+                            .entry(full_path)
+                            .or_insert_with(|| "numeric offsets (visual noise)".to_string());
+                    }
                 }
             }
             let singleton_chars: usize = singletons.iter().map(|s| s.content.len()).sum();
@@ -201,6 +265,15 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
     // Ceiling division: (n + 3) / 4
     let estimated_tokens = (total_chars + 3) / 4;
 
+    // Detect the single-root-object case: the entire file is one JSON object with
+    // no path selector, so subtree puts everything in (singletons).  The cost
+    // breakdown is meaningless (one bucket ~= 100%) and the del() suggestion would
+    // read `del(.(singletons))`, which is not valid pipeline syntax.
+    let singletons_chars = field_chars.get("(singletons)").copied().unwrap_or(0);
+    let is_single_root_misleading = estimated_tokens > 10_000
+        && total_chars > 0
+        && singletons_chars as f32 / total_chars as f32 > 0.90;
+
     let mut fields: Vec<FieldCost> = field_chars
         .iter()
         .map(|(field, &chars)| {
@@ -214,6 +287,7 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
                 path: field.clone(),
                 tokens,
                 pct,
+                note: field_notes.get(field).cloned(),
             }
         })
         .collect();
@@ -226,52 +300,60 @@ pub fn cost_preview(analysis: &AnalysisOutput) -> CostPreviewOutput {
     // field names are internal struct labels (e.g. "pattern", "content") that
     // do not correspond to any valid pipeline expression, so a `del(...)` hint
     // would be actively misleading.  Suppress the suggestion for those types.
-    let suggestion_allowed = !matches!(
-        &analysis.results,
-        AlgorithmResults::Grouped { .. } | AlgorithmResults::OutlierFocused { .. }
-    );
+    // Also suppress when the single-root-object warning fires — the suggestion
+    // would read `del(.(singletons))` which is not valid syntax.
+    let suggestion_allowed = !is_single_root_misleading
+        && !matches!(
+            &analysis.results,
+            AlgorithmResults::Grouped { .. } | AlgorithmResults::OutlierFocused { .. }
+        );
 
-    let noise: Vec<&FieldCost> = fields.iter().filter(|f| f.pct > 20.0).collect();
+    // Internal bucket names are not valid pipeline paths — exclude them from
+    // suggestions regardless of their size.
+    let is_pseudo_field = |path: &str| path.starts_with('(') && path.ends_with(')');
+    let noise: Vec<&FieldCost> = fields
+        .iter()
+        .filter(|f| f.pct > 20.0 && !is_pseudo_field(&f.path))
+        .collect();
     let suggestion = if noise.is_empty() || !suggestion_allowed {
         None
     } else {
-        // Count how many full paths share each terminal key name.
-        // If the terminal name is unique, suggest the short form `del(.name)`;
-        // otherwise use the dotted path after stripping the leading `$.` array
-        // bracket prefix.
-        let mut terminal_count: HashMap<String, usize> = HashMap::new();
-        for fc in &fields {
-            let terminal = fc.path.split('.').last().unwrap_or(&fc.path).to_string();
-            *terminal_count.entry(terminal).or_insert(0) += 1;
-        }
-
-        let field_list = noise
+        // Convert each noisy path to a pipeline-compatible del argument and
+        // deduplicate: multiple paths may truncate to the same ancestor
+        // (e.g. `advices.advices[*].frame.sourceCode` and
+        // `advices.advices[*].diff.dictionary` both become `.advices.advices`).
+        let mut seen = std::collections::HashSet::new();
+        let field_list: Vec<String> = noise
             .iter()
-            .map(|f| {
-                let terminal = f.path.split('.').last().unwrap_or(&f.path);
-                if terminal_count.get(terminal).copied().unwrap_or(0) == 1 {
-                    // Unique terminal name — use short form.
-                    format!(".{}", terminal)
-                } else {
-                    // Ambiguous — use the dotted path, stripping the leading
-                    // `$.` (or `$[*].`, etc.) array-traversal prefix so the
-                    // suggestion stays valid as a del() argument.
-                    let dotted = strip_path_prefix(&f.path);
-                    format!(".{}", dotted)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
+            .filter_map(|f| path_to_del_arg(&f.path))
+            .filter(|arg| seen.insert(arg.clone()))
+            .collect();
 
-        let noise_tokens: usize = noise.iter().map(|f| f.tokens).sum();
-        let remaining = estimated_tokens.saturating_sub(noise_tokens);
-        Some(format!("del({}) → ~{} tokens", field_list, remaining))
+        if field_list.is_empty() {
+            None
+        } else {
+            let noise_tokens: usize = noise.iter().map(|f| f.tokens).sum();
+            let remaining = estimated_tokens.saturating_sub(noise_tokens);
+            Some(format!("del({}) → ~{} tokens", field_list.join(", "), remaining))
+        }
+    };
+
+    let warning = if is_single_root_misleading {
+        Some(
+            "The root is a single JSON object — cost preview is not useful without a path \
+             selector.\nRun `--discover` first to identify the array field, then:\n\
+             txtfold --cost-preview '.ARRAY_FIELD[]' FILE"
+                .to_string(),
+        )
+    } else {
+        None
     };
 
     CostPreviewOutput {
         estimated_tokens,
         fields,
         suggestion,
+        warning,
     }
 }
 
@@ -343,6 +425,67 @@ mod tests {
         let md = preview.to_markdown();
         assert!(md.contains("Estimated output:"));
         assert!(md.contains("tokens"));
+    }
+
+    #[test]
+    fn test_path_to_del_arg() {
+        // Simple nested field — full dotted path preserved.
+        assert_eq!(
+            path_to_del_arg("$[*].location.sourceCode"),
+            Some(".location.sourceCode".into())
+        );
+        // Deep dotted path with no array — preserved in full.
+        assert_eq!(
+            path_to_del_arg("$[*].location.path.file"),
+            Some(".location.path.file".into())
+        );
+        // Nested array traversal — truncate before first `[*]`.
+        assert_eq!(
+            path_to_del_arg("$[*].advices.advices[*].frame.sourceCode"),
+            Some(".advices.advices".into())
+        );
+        // Multiple `[*]` — truncate before the first one.
+        assert_eq!(
+            path_to_del_arg("$[*].advices.advices[*].list[*][*].content"),
+            Some(".advices.advices".into())
+        );
+        // Top-level field only.
+        assert_eq!(
+            path_to_del_arg("$[*].description"),
+            Some(".description".into())
+        );
+        // Entry root itself — not a field, skip.
+        assert_eq!(path_to_del_arg("$[*]"), None);
+        // Non-entry-array path — skip.
+        assert_eq!(path_to_del_arg("$.summary.errors"), None);
+        // Pseudo-field — not even a JSONPath, skip.
+        assert_eq!(path_to_del_arg("(singletons)"), None);
+    }
+
+    #[test]
+    fn test_single_root_object_warning() {
+        // A large single-root JSON object (not an array) should trigger the warning
+        // and suppress the suggestion.  Build a ~40KB object so estimated_tokens > 10_000.
+        let value = "x".repeat(40_000);
+        let input = format!(r#"{{"diagnostics": [{{"msg": "{}"}}]}}"#, value);
+        let options = crate::ProcessOptions {
+            input_format: crate::InputFormat::Json,
+            ..Default::default()
+        };
+        let analysis = crate::process(&input, &options, "json").unwrap();
+        let output: AnalysisOutput = serde_json::from_str(&analysis).unwrap();
+        let preview = cost_preview(&output);
+        assert!(
+            preview.warning.is_some(),
+            "expected warning for single-root-object with no path selector"
+        );
+        assert!(
+            preview.suggestion.is_none(),
+            "suggestion must be suppressed when warning fires"
+        );
+        let md = preview.to_markdown();
+        assert!(md.contains('\u{26a0}'), "warning symbol should appear in markdown");
+        assert!(md.contains("path selector"), "warning should mention path selector");
     }
 
     #[test]
