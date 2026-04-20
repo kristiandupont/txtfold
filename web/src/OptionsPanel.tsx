@@ -8,8 +8,7 @@ const MODES: { value: Mode; label: string; description: string }[] = [
   {
     value: "analyze",
     label: "Analyze",
-    description:
-      "Run the full analysis pipeline and return grouped results.",
+    description: "Run the full analysis pipeline and return grouped results.",
   },
   {
     value: "discover",
@@ -33,12 +32,13 @@ export function* OptionsPanel(
 ) {
   for ({ state, setState } of this) {
     const selectedMode = MODES.find((m) => m.value === state.mode)!;
-    const showPipeline = state.mode === "analyze" || state.mode === "cost-preview";
+    const showPipeline =
+      state.mode === "analyze" || state.mode === "cost-preview";
     const showBudget = state.mode === "analyze";
     const showOutputFormat = state.mode === "analyze";
 
     yield (
-      <div class="flex flex-col gap-5 p-4 bg-gray-50 rounded overflow-y-auto min-h-[79vh] max-h-[80vh]">
+      <div class="flex flex-col w-1/3 gap-5 p-4 bg-gray-50 rounded overflow-y-auto min-h-[79vh] max-h-[80vh]">
         {/* ── Mode ── */}
         <div class="flex flex-col gap-2">
           <SectionHeader title="Mode" />
@@ -86,7 +86,7 @@ export function* OptionsPanel(
             <SectionHeader title="Pipeline" />
             <input
               type="text"
-              placeholder='e.g. .items[] | del(.body) | group_by(.type)'
+              placeholder="e.g. .items[] | del(.body) | group_by(.type)"
               value={state.pipeline}
               class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono"
               oninput={(e: Event) =>

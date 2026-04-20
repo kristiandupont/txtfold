@@ -71,7 +71,7 @@ export function* App(this: Context) {
       <div class="flex-row border rounded-2xl border-gray-500 p-4 items-center w-full">
         <div class="flex-1 flex flex-col lg:flex-row gap-4">
           <OptionsPanel state={state} setState={setState} />
-          <div class="flex flex-col lg:flex-row gap-4 w-full relative">
+          <div class="flex flex-col w-2/3 lg:flex-row gap-4 relative">
             <InputPanel state={state} setState={setState} />
             <OutputPanel state={state} />
             <button
