@@ -84,6 +84,7 @@ class _CostPreviewOutputRequired(TypedDict):
 
 class CostPreviewOutput(_CostPreviewOutputRequired, total=False):
     suggestion: str | None
+    warning: str | None
 
 
 # Output of the discover operation — a compact structural schema map.
@@ -94,10 +95,13 @@ class DiscoverOutput(TypedDict):
 
 
 # Token cost attributed to a single field across all groups/patterns.
-class FieldCost(TypedDict):
+class _FieldCostRequired(TypedDict):
     path: str
     pct: float
     tokens: int
+
+class FieldCost(_FieldCostRequired, total=False):
+    note: str | None
 
 
 # Summary of a single field/slot discovered in the input.

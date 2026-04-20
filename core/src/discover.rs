@@ -44,48 +44,8 @@ pub struct DiscoverOutput {
     pub fields: Vec<FieldSummary>,
 }
 
-/// Pipeline syntax instructions printed with "--syntax"
-pub const HINTS_TEXT: &str = concat!(
-    "txtfold discover output — schema map of the input document.\n",
-    "Use it to write a pipeline expression, then rerun without --discover.\n",
-    "\n",
-    "PIPELINE SYNTAX: pass as the first argument before the filename.\n",
-    "Stages are joined by |. Each stage transforms or analyses the input.\n",
-    "\n",
-    "PATH SELECTION (json only)\n",
-    "  .foo          select field foo on each entry\n",
-    "  .foo[]        descend into array field foo (one entry per element)\n",
-    "  .foo[*]       same as .foo[]\n",
-    "\n",
-    "FILTER / RESHAPE\n",
-    "  del(.f)                        remove field f from every entry\n",
-    "  del(.f, .g, .f.g)             remove multiple fields; dotted paths supported\n",
-    "  where(.f == \"v\")              keep entries where field equals value\n",
-    "  where(.f != \"v\")              keep entries where field differs\n",
-    "  where(.f contains \"substr\")   keep entries where field contains substring\n",
-    "  where(.f starts_with \"prefix\") / ends_with \"suffix\"\n",
-    "\n",
-    "TERMINAL VERB — pick exactly one; place it last; default is summarize\n",
-    "  summarize          default algorithm for the declared format\n",
-    "  patterns           template extraction           (line / block)\n",
-    "  similar(T)         edit-distance clustering, T ∈ [0.0, 1.0]  (line / block)\n",
-    "  outliers           n-gram outlier detection      (line / block)\n",
-    "  schemas            schema clustering             (json)\n",
-    "  subtree            subtree pattern finder        (json)\n",
-    "  group_by(.f)       frequency table by field value           (json)\n",
-    "  group_by(slot[N])  frequency table by Nth token value (line / block)\n",
-    "\n",
-    "POST-PROCESSING (optional, after terminal verb)\n",
-    "  top(N)             keep the N largest groups; collapse the rest\n",
-    "  label(.f)          use field value as the group display name\n",
-    "\n",
-    "EXAMPLES\n",
-    "  '.diagnostics[] | del(.sourceCode, .advices) | group_by(.category)'\n",
-    "  '.diagnostics[] | where(.severity == \"error\") | group_by(.category)'\n",
-    "  '.events[] | del(.timestamp, .requestId) | patterns'\n",
-    "  'similar(0.8) | top(20)'\n",
-    "  'outliers'\n"
-);
+// Pipeline syntax instructions printed with "--syntax" — extracted from README.md at build time.
+include!(concat!(env!("OUT_DIR"), "/hints_text.rs"));
 
 impl DiscoverOutput {
     /// Render a compact markdown table.

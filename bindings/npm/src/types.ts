@@ -75,6 +75,7 @@ export interface CostPreviewOutput {
   estimated_tokens: number;
   fields: FieldCost[];
   suggestion?: string | null;
+  warning?: string | null;
 }
 
 /** Output of the discover operation — a compact structural schema map. */
@@ -86,6 +87,7 @@ export interface DiscoverOutput {
 
 /** Token cost attributed to a single field across all groups/patterns. */
 export interface FieldCost {
+  note?: string | null;
   path: string;
   pct: number;
   tokens: number;

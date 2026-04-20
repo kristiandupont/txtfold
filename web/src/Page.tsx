@@ -1,5 +1,7 @@
 import { App } from "./App";
 import { InstallGuide } from "./InstallGuide";
+import { Markdown } from "./markdown/Markdown";
+import { consumerDocs } from "./generated/consumer-docs";
 
 function GithubLogo() {
   return (
@@ -43,9 +45,8 @@ export function Page() {
 
       <App />
 
-      <div class="w-2/3 text-center text-gray-700 text-lg">
-        Put this into your RAG pipeline, use it to debug your data, or just have
-        fun folding and unfolding
+      <div class="w-2/3 prose prose-gray max-w-none">
+        <Markdown content={consumerDocs} />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-.PHONY: all build install schema types wasm npm python web dev test clean
+.PHONY: all build install schema types wasm npm python web dev extract-docs test clean
 
 # --- Rust -------------------------------------------------------------------
 
@@ -37,8 +37,12 @@ python: types
 
 # --- Web --------------------------------------------------------------------
 
+# Extract consumer-facing docs from README.md into a generated TypeScript module
+extract-docs:
+	bun tools/extract-docs.ts
+
 # Production build of the web UI (requires npm package to be built first)
-web: npm
+web: npm extract-docs
 	cd web && bun run build
 
 # Start the Vite dev server (uses whatever npm package is already built)
@@ -46,7 +50,7 @@ dev:
 	cd web && bun run dev
 
 # Rebuild core → schema → types → npm package, then start the Vite dev server
-dev-web: npm
+dev-web: npm extract-docs
 	cd web && bun run dev
 
 # --- Tests ------------------------------------------------------------------

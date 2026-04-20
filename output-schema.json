@@ -300,6 +300,13 @@
             "string",
             "null"
           ]
+        },
+        "warning": {
+          "description": "Warning emitted when the result is not actionable (e.g. single root object with no path selector — the entire file lands in one bucket).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -341,6 +348,13 @@
     "FieldCost": {
       "description": "Token cost attributed to a single field across all groups/patterns.",
       "properties": {
+        "note": {
+          "description": "Optional annotation explaining why this field is worth deleting even if its token cost is low (e.g. numeric offset arrays that add visual noise).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "path": {
           "description": "Field name (top-level key for JSON, variable name for text patterns).",
           "type": "string"

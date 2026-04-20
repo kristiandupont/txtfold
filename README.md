@@ -31,6 +31,10 @@ Pipe from stdin (format must be declared explicitly):
 cat server.log | txtfold --format line
 ```
 
+<!-- docs:consumer-start -->
+
+<!-- docs:syntax-start -->
+
 ## Pipeline expressions
 
 The optional first argument selects the algorithm and pre-processes input — like jq's filter argument, but for summarization:
@@ -45,25 +49,29 @@ If omitted, the default is `summarize` (json → subtree, line/block → templat
 
 **Algorithm verbs** (terminal, selects the algorithm):
 
-| Verb | Algorithm |
-|---|---|
-| `summarize` | default per format |
-| `similar(t)` | edit-distance clustering at threshold `t` |
-| `patterns` | template extraction |
-| `outliers` | n-gram outlier detection |
-| `schemas` | JSON schema clustering |
-| `subtree` | JSON subtree algorithm |
-| `group_by(.field)` | value-based frequency table (JSON) |
+| Verb                | Algorithm                                             |
+| ------------------- | ----------------------------------------------------- |
+| `summarize`         | default per format                                    |
+| `similar(t)`        | edit-distance clustering at threshold `t`             |
+| `patterns`          | template extraction                                   |
+| `outliers`          | n-gram outlier detection                              |
+| `schemas`           | JSON schema clustering                                |
+| `subtree`           | JSON subtree algorithm                                |
+| `group_by(.field)`  | value-based frequency table (JSON)                    |
 | `group_by(slot[N])` | value-based frequency table by Nth token (line/block) |
 
 **Pre-processing stages** (JSON only):
+
 - `.field[]` / `.field[*]` / `.field[N]` — navigate into a JSON subtree
 - `del(.field, .nested.field, ...)` — remove fields from each JSON object; dotted paths supported
 - `where(.field == "value")` — keep only entries matching a condition; operators: `==`, `!=`, `contains`, `starts_with`, `ends_with`
 
 **Post-processing modifiers**:
+
 - `top(N)` — keep the N largest groups
 - `label(.field)` — relabel groups using a field value
+
+<!-- docs:syntax-end -->
 
 ## Discover mode
 
@@ -134,11 +142,11 @@ Appears at: $.users[*], $.team.members[*], $.config.owner
 
 Declare the format explicitly with `--format`:
 
-| Format  | Use for | Entry splitting |
-|---|---|---|
-| `line` | Plain text logs, CSV | One entry per line |
+| Format  | Use for                             | Entry splitting                                   |
+| ------- | ----------------------------------- | ------------------------------------------------- |
+| `line`  | Plain text logs, CSV                | One entry per line                                |
 | `block` | Stack traces, multi-line log blocks | `--entry-pattern <regex>`, or timestamp heuristic |
-| `json` | JSON arrays or maps | One array element / map value per entry |
+| `json`  | JSON arrays or maps                 | One array element / map value per entry           |
 
 For files, format is inferred from the extension (`.json` → json, anything else → line). For stdin, `--format` is required.
 
@@ -171,8 +179,13 @@ result = txtfold.process(data, input_format="json", pipeline="del(.sourceCode) |
 
 ```ts
 import { process } from "txtfold";
-const result = process(data, { inputFormat: "json", pipeline: "del(.sourceCode) | schemas" });
+const result = process(data, {
+  inputFormat: "json",
+  pipeline: "del(.sourceCode) | schemas",
+});
 ```
+
+<!-- docs:consumer-end -->
 
 ## Compared to alternatives
 
