@@ -17,8 +17,8 @@
     "wasm-web/"
   ],
   "scripts": {
-    "build:wasm": "wasm-pack build ../../core --out-dir ../bindings/npm/wasm --target nodejs --no-pack --features wasm",
-    "build:wasm-web": "wasm-pack build ../../core --out-dir ../bindings/npm/wasm-web --target web --no-pack --features wasm",
+    "build:wasm": "wasm-pack build ../../core --out-dir ../bindings/npm/wasm --out-name txtfold --target nodejs --no-pack --features wasm",
+    "build:wasm-web": "wasm-pack build ../../core --out-dir ../bindings/npm/wasm-web --out-name txtfold --target web --no-pack --features wasm",
     "build:ts": "tsc",
     "gen-types": "bun ../../tools/gen-types.ts",
     "build": "bun run build:wasm && bun run build:wasm-web && bun run build:ts"
