@@ -44,13 +44,14 @@ export function* OptionsPanel(
           <SectionHeader title="Mode" />
           <select
             class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
-            value={state.mode}
             onchange={(e: Event) =>
               setState({ mode: (e.target as HTMLSelectElement).value as Mode })
             }
           >
             {MODES.map((m) => (
-              <option value={m.value}>{m.label}</option>
+              <option selected={state.mode === m.value} value={m.value}>
+                {m.label}
+              </option>
             ))}
           </select>
           <p class="text-xs text-gray-400">{selectedMode.description}</p>
@@ -61,13 +62,14 @@ export function* OptionsPanel(
           <SectionHeader title="Input Format" />
           <select
             class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
-            value={state.inputFormat}
             onchange={(e: Event) =>
               setState({ inputFormat: (e.target as HTMLSelectElement).value })
             }
           >
             {schema.input_formats.map((f) => (
-              <option value={f.name}>{f.name}</option>
+              <option selected={state.inputFormat === f.name} value={f.name}>
+                {f.name}
+              </option>
             ))}
           </select>
           {(() => {
@@ -131,7 +133,6 @@ export function* OptionsPanel(
             <SectionHeader title="Output Format" />
             <select
               class="px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
-              value={state.outputFormat}
               onchange={(e: Event) =>
                 setState({
                   outputFormat: (e.target as HTMLSelectElement).value,
@@ -139,7 +140,9 @@ export function* OptionsPanel(
               }
             >
               {schema.formatters.map((f) => (
-                <option value={f.name}>{f.name}</option>
+                <option selected={state.outputFormat === f.name} value={f.name}>
+                  {f.name}
+                </option>
               ))}
             </select>
           </div>

@@ -45,6 +45,65 @@ export function Page() {
 
       <App />
 
+      <div class="w-2/3 text-gray-500 text-sm">
+        <h1 class="text-xl text-gray-700 font-bold mb-4">
+          Iterative Data Analysis with LLMs
+        </h1>
+
+        <p>
+          When working with large or unfamiliar data files, txtfold enables LLMs
+          to explore and summarize content iteratively, ensuring outputs remain
+          concise and relevant. Follow this process to refine your analysis step
+          by step:
+        </p>
+        <ol class="list-decimal list-inside space-y-3 my-4">
+          <li>
+            <em>Tell your LLM how txtfold works</em>: Use{" "}
+            <pre class="inline">txtfold --syntax</pre> to understand how recipes
+            work.
+          </li>
+          <li>
+            <em>Discover the structure</em>: Use{" "}
+            <pre class="inline">txtfold --discover &lt;FILE&gt;</pre> to map
+            fields, types, and sample values without processing the entire file.
+            Identify high-cardinality noise (e.g., unique IDs or blobs) and
+            low-cardinality grouping candidates (e.g., categories or status
+            codes).
+          </li>
+          <li>
+            <em>Preview costs</em>: Run{" "}
+            <pre class="inline">txtfold --cost-preview &lt;FILE&gt;</pre> to
+            estimate output size. Aim for under ~2,000 tokens to fit comfortably
+            in LLM context. Remove noisy fields with{" "}
+            <pre class="inline">del()</pre> to reduce size.
+          </li>
+          <li>
+            <em>Run initial analysis</em>: Apply a pipeline like{" "}
+            <pre class="inline">
+              txtfold '.array[] | del(.noise) | group_by(.category)'
+              &lt;FILE&gt;
+            </pre>{" "}
+            for JSON, or{" "}
+            <pre class="inline">txtfold 'patterns' &lt;FILE&gt;</pre> for logs.
+            Review groups, outliers, and readability.
+          </li>
+          <li>
+            <em>Iterate and refine</em>: Adjust based on results—add{" "}
+            <pre class="inline">top(N)</pre> for focus, switch algorithms (e.g.,{" "}
+            <pre class="inline">similar(0.8)</pre> for clustering), or filter
+            paths. Re-preview costs before full runs.
+          </li>
+          <li>
+            <em>Finalize</em>: Ensure the output provides clear insights with
+            distinct groups and manageable length, perfect for LLM consumption.
+          </li>
+        </ol>
+        <p>
+          This iterative approach transforms raw data into actionable summaries,
+          making complex files accessible for AI-driven analysis.
+        </p>
+      </div>
+
       <div class="w-2/3 prose prose-gray max-w-none">
         <Markdown content={consumerDocs} />
       </div>

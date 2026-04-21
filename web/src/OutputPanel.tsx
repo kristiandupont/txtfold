@@ -11,7 +11,8 @@ export function* OutputPanel(this: Context, { state }: { state: State }) {
     });
 
   for ({ state } of this) {
-    const isMarkdown = state.outputFormat === "markdown";
+    const isMarkdown =
+      state.outputFormat === "markdown" && state.mode === "analyze";
     yield (
       <div class="relative flex flex-1 flex-col w-1/2 h-full min-h-[79vh] max-h-[80vh] ">
         <div class="p-4 flex items-center justify-between absolute top-0 right-0">
