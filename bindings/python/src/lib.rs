@@ -27,9 +27,9 @@ fn process(
     budget: Option<usize>,
     format: &str,
 ) -> PyResult<String> {
-    let fmt = txtfold::input_format_from_str(input_format)
+    let fmt = txtfold_core::input_format_from_str(input_format)
         .map_err(PyValueError::new_err)?;
-    let options = txtfold::ProcessOptions {
+    let options = txtfold_core::ProcessOptions {
         input_format: fmt,
         pipeline_expr: pipeline.map(|s| s.to_string()),
         budget,
@@ -37,7 +37,7 @@ fn process(
         outlier_threshold,
         depth,
     };
-    txtfold::process(input, &options, format)
+    txtfold_core::process(input, &options, format)
         .map_err(PyValueError::new_err)
 }
 
@@ -52,9 +52,9 @@ fn process(
 #[pyfunction]
 #[pyo3(signature = (input, input_format, format="json"))]
 fn discover(input: &str, input_format: &str, format: &str) -> PyResult<String> {
-    let fmt = txtfold::input_format_from_str(input_format)
+    let fmt = txtfold_core::input_format_from_str(input_format)
         .map_err(PyValueError::new_err)?;
-    txtfold::discover_formatted(input, fmt, format)
+    txtfold_core::discover_formatted(input, fmt, format)
         .map_err(PyValueError::new_err)
 }
 
@@ -81,9 +81,9 @@ fn cost_preview(
     depth: usize,
     format: &str,
 ) -> PyResult<String> {
-    let fmt = txtfold::input_format_from_str(input_format)
+    let fmt = txtfold_core::input_format_from_str(input_format)
         .map_err(PyValueError::new_err)?;
-    let options = txtfold::ProcessOptions {
+    let options = txtfold_core::ProcessOptions {
         input_format: fmt,
         pipeline_expr: pipeline.map(|s| s.to_string()),
         budget: None,
@@ -91,7 +91,7 @@ fn cost_preview(
         outlier_threshold,
         depth,
     };
-    txtfold::cost_preview_formatted(input, &options, format)
+    txtfold_core::cost_preview_formatted(input, &options, format)
         .map_err(PyValueError::new_err)
 }
 

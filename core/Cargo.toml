@@ -1,5 +1,5 @@
 [package]
-name = "txtfold"
+name = "txtfold-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ authors.workspace = true
 description = "Identifies patterns and outliers in large log files and structured data"
 keywords = ["logs", "analysis", "patterns", "summarization", "text"]
 categories = ["text-processing", "command-line-utilities", "data-structures"]
-readme = "../README.md"
+readme = "README.md"
 
 [lib]
 # Support both WASM (cdylib) and native Rust usage (rlib)

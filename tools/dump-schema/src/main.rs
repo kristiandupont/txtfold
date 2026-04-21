@@ -4,17 +4,17 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use txtfold::cost_preview::CostPreviewOutput;
-use txtfold::discover::DiscoverOutput;
-use txtfold::output::AnalysisOutput;
-use txtfold::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
+use txtfold_core::cost_preview::CostPreviewOutput;
+use txtfold_core::discover::DiscoverOutput;
+use txtfold_core::output::AnalysisOutput;
+use txtfold_core::registry::{ALL_ALGORITHMS, ALL_FORMATTERS, ALL_INPUT_FORMATS};
 
 #[derive(Serialize)]
 struct ConfigSchema {
     version: &'static str,
-    algorithms: &'static [txtfold::metadata::AlgorithmMetadata],
-    formatters: &'static [txtfold::metadata::FormatterMetadata],
-    input_formats: &'static [txtfold::metadata::InputFormatMetadata],
+    algorithms: &'static [txtfold_core::metadata::AlgorithmMetadata],
+    formatters: &'static [txtfold_core::metadata::FormatterMetadata],
+    input_formats: &'static [txtfold_core::metadata::InputFormatMetadata],
 }
 
 fn main() {
@@ -28,7 +28,7 @@ fn main() {
 
     // Config schema: algorithms, formatters, input formats
     let config_schema = ConfigSchema {
-        version: txtfold::version(),
+        version: txtfold_core::version(),
         algorithms: ALL_ALGORITHMS,
         formatters: ALL_FORMATTERS,
         input_formats: ALL_INPUT_FORMATS,

@@ -191,14 +191,14 @@ Both bindings expose a six-function API: `process()`, `processMarkdown()`, `disc
 ## Workspace Structure
 
 ```
-core/                    Core library (algorithms, parsers, pipeline, formatters, registry)
-cli/                     Command-line interface
+core/                    Core library — crate name: txtfold-core (published to crates.io)
+cli/                     CLI binary — crate name: txtfold (published to crates.io)
 tools/dump-schema/       Dev tool: serializes registry → schema.json + output-schema.json
 tools/sample-generator/  Dev tool: generates synthetic logs and JSON for testing
 tools/gen-types.ts       Dev tool: generates typed output wrappers from output-schema.json
 web/                     Web UI (Crank + TypeScript + Tailwind, WASM backend)
-bindings/python/         Python binding (PyO3 + maturin, published to PyPI)
-bindings/npm/            npm binding (WASM + TypeScript, published to npm)
+bindings/python/         Python binding (PyO3 + maturin, published to PyPI as txtfold)
+bindings/npm/            npm binding (WASM + TypeScript, published to npm as txtfold)
 output-schema.json       Checked-in JSON Schema for output types (contract for bindings)
 ```
 

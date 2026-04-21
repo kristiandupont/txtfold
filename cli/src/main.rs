@@ -4,8 +4,8 @@ use clap::{Arg, Command};
 use std::fs;
 use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
-use txtfold::registry::{ALL_FORMATTERS, ALL_INPUT_FORMATS};
-use txtfold::{InputFormat, ProcessOptions};
+use txtfold_core::registry::{ALL_FORMATTERS, ALL_INPUT_FORMATS};
+use txtfold_core::{InputFormat, ProcessOptions};
 
 fn build_cli() -> Command {
     // --- valid values for --output-format ---
@@ -24,7 +24,7 @@ fn build_cli() -> Command {
 
     Command::new("txtfold")
         .about("Identify patterns and outliers in large log files and structured data")
-        .version(txtfold::version())
+        .version(txtfold_core::version())
         // Positional arg 1: optional PIPELINE expression.
         // Positional arg 2: optional FILE path.
         // Clap can't disambiguate these at the type level, so we accept two
@@ -161,7 +161,7 @@ fn is_pipeline_expr(s: &str) -> bool {
     // Path expression, pipe, or known verb name.
     s.starts_with('.')
         || s.contains('|')
-        || txtfold::pipeline::is_verb_name(s)
+        || txtfold_core::pipeline::is_verb_name(s)
         || s.starts_with("similar(")
         || s.starts_with("top(")
         || s.starts_with("del(")
@@ -174,7 +174,7 @@ fn main() -> Result<()> {
 
     // ── --syntax ──────────────────────────────────────────────────────────────
     if matches.get_flag("syntax") {
-        print!("{}", txtfold::discover::HINTS_TEXT);
+        print!("{}", txtfold_core::discover::HINTS_TEXT);
         println!();
         return Ok(());
     }
@@ -263,7 +263,7 @@ fn main() -> Result<()> {
 
     // ── --discover ────────────────────────────────────────────────────────────
     if matches.get_flag("discover") {
-        let output = txtfold::discover(&content, input_format)
+        let output = txtfold_core::discover(&content, input_format)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         let formatted = match output_format {
@@ -286,7 +286,7 @@ fn main() -> Result<()> {
             depth,
         };
 
-        let output = txtfold::cost_preview(&content, &options)
+        let output = txtfold_core::cost_preview(&content, &options)
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         let formatted = match output_format {
@@ -308,12 +308,12 @@ fn main() -> Result<()> {
         depth,
     };
 
-    let output = txtfold::process_to_output(&content, &options, filename)
+    let output = txtfold_core::process_to_output(&content, &options, filename)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let formatted = match output_format {
         "json" => serde_json::to_string_pretty(&output).context("Failed to serialize JSON")?,
-        _ => txtfold::formatter::MarkdownFormatter::format(&output),
+        _ => txtfold_core::formatter::MarkdownFormatter::format(&output),
     };
 
     write_output(formatted, matches.get_one::<String>("output"))

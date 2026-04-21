@@ -9,5 +9,5 @@ name = "_txtfold"
 crate-type = ["cdylib"]
 
 [dependencies]
-txtfold = { path = "../../core" }
+txtfold-core = { path = "../../core" }
 pyo3 = { version = "0.23", features = ["extension-module"] }

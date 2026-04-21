@@ -1,4 +1,4 @@
-# txtfold (npm)
+# txtfold
 
 Identifies patterns and outliers in large log files and structured data. No ML, no fuzzy logic — same input always produces the same output.
 
@@ -28,4 +28,4 @@ const result = process(text, { algorithm: "clustering", threshold: 0.9 });
 
 ## Documentation
 
-Full documentation — algorithms, parameters, and output schema — is at **https://txtfold.dev/docs**.
+Full documentation — algorithms, parameters, and output schema — is at **https://kristiandupont.github.io/txtfold/**.
