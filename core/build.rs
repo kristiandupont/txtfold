@@ -4,9 +4,9 @@ use std::path::Path;
 
 // This build script extracts the syntax hints from the README.md file and generates a Rust source file
 fn main() {
-    println!("cargo:rerun-if-changed=../README.md");
+    println!("cargo:rerun-if-changed=README.md");
 
-    let readme = fs::read_to_string("../README.md").expect("README.md not found");
+    let readme = fs::read_to_string("README.md").expect("README.md not found");
 
     let start_marker = "<!-- docs:syntax-start -->";
     let end_marker = "<!-- docs:syntax-end -->";

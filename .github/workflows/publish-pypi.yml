@@ -23,6 +23,8 @@ jobs:
           args: --release --out dist
           # builds manylinux and musllinux wheels on Linux
           manylinux: auto
+          # pyo3 0.23.x supports up to Python 3.13; bump this when pyo3 is upgraded
+          python-version: "3.8 3.9 3.10 3.11 3.12 3.13"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
