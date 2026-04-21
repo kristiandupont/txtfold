@@ -10,4 +10,4 @@ repository = "https://github.com/kristiandupont/txtfold"
 authors = ["Kristian Dupont <kristian@kristiandupont.com>"]
 
 [workspace.dependencies]
-# Common dependencies can be listed here and referenced by workspace members
+txtfold-core = { path = "core", version = "0.1.0" }

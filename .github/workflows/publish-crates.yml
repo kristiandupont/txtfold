@@ -18,6 +18,7 @@ jobs:
           VERSION="${{ github.event.release.tag_name }}"
           VERSION="${VERSION#v}"
           sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"$VERSION\"/" Cargo.toml
+          sed -i "s/txtfold-core = { path = \"core\", version = \"[^\"]*\" }/txtfold-core = { path = \"core\", version = \"$VERSION\" }/" Cargo.toml
 
       - name: Cache Rust build
         uses: actions/cache@v4
