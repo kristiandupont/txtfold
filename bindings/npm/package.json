@@ -23,6 +23,10 @@
     "gen-types": "bun ../../tools/gen-types.ts",
     "build": "bun run build:wasm && bun run build:wasm-web && bun run build:ts"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kristiandupont/txtfold"
+  },
   "keywords": ["logs", "analysis", "patterns", "summarization"],
   "license": "MIT OR Apache-2.0",
   "devDependencies": {
