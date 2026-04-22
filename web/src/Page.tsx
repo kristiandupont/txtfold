@@ -47,7 +47,7 @@ export function Page() {
 
       <div class="w-2/3 text-gray-500 text-sm">
         <h1 class="text-xl text-gray-700 font-bold mb-4">
-          Iterative Data Analysis with LLMs
+          How to iterate your way towards a recipe with an LLM
         </h1>
 
         <p>
@@ -59,8 +59,8 @@ export function Page() {
         <ol class="list-decimal list-inside space-y-3 my-4">
           <li>
             <em>Tell your LLM how txtfold works</em>: Use{" "}
-            <pre class="inline">txtfold --syntax</pre> to understand how recipes
-            work.
+            <pre class="inline">txtfold --syntax</pre> to understand the recipe
+            syntax.
           </li>
           <li>
             <em>Discover the structure</em>: Use{" "}

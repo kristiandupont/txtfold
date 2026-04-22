@@ -10,8 +10,13 @@ const installers = [
   //   command: "brew install txtfold",
   // },
   {
+    name: "Build CLI",
+    command:
+      "git clone https://github.com/kristiandupont/txtfold.git && cd txtfold && make install",
+  },
+  {
     name: "Rust",
-    command: "cargo add txtfold",
+    command: "cargo add txtfold-core",
   },
   {
     name: "JS/TS",
@@ -20,11 +25,6 @@ const installers = [
   {
     name: "Python",
     command: "pip install txtfold",
-  },
-  {
-    name: "Build CLI",
-    command:
-      "git clone https://github.com/kristiandupont/txtfold.git && cd txtfold && cargo install",
   },
 ];
 
@@ -62,7 +62,7 @@ export function* InstallGuide(this: Context) {
         <ul class="flex flex-row gap-2">
           {installers.map((installer, index) => (
             <li
-              class={`px-3 py-1 rounded-lg text-sm cursor-pointer ${
+              class={`px-3 py-1 rounded-lg text-sm select-none cursor-pointer ${
                 index === selectedInstallerIndex
                   ? "bg-gray-500 text-white"
                   : "bg-white text-gray-500 hover:bg-gray-50"
