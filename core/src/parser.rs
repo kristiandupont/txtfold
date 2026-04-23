@@ -4,6 +4,7 @@ use crate::entry::Entry;
 use crate::metadata::{InputFormatMetadata, SubOption};
 use regex::Regex;
 use serde_json::Value;
+use std::sync::LazyLock;
 
 /// Entry parsing mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,11 +162,9 @@ fn detect_entry_mode(content: &str) -> EntryMode {
 
 /// Check if a line starts with a timestamp pattern
 fn has_timestamp_prefix(line: &str) -> bool {
-    lazy_static::lazy_static! {
-        static ref TIMESTAMP_RE: Regex = Regex::new(
-            r"^[\[\(]?\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}"
-        ).unwrap();
-    }
+    static TIMESTAMP_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^[\[\(]?\d{4}[-/]\d{2}[-/]\d{2}[T\s]\d{2}:\d{2}:\d{2}").unwrap()
+    });
 
     TIMESTAMP_RE.is_match(line)
 }

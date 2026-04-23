@@ -129,10 +129,10 @@ impl Tokenizer {
     /// Replaces timestamp patterns with marked versions
     fn preprocess_timestamps(line: &str) -> String {
         use regex::Regex;
-        use once_cell::sync::Lazy;
+        use std::sync::LazyLock;
 
         // Match common timestamp patterns
-        static TIMESTAMP_PATTERN: Lazy<Regex> = Lazy::new(|| {
+        static TIMESTAMP_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2}(\.\d+)?").unwrap()
         });
 

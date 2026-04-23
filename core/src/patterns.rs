@@ -1,82 +1,70 @@
 //! Pattern matching for token classification
 
-use once_cell::sync::Lazy;
 use regex::Regex;
-use std::collections::HashSet;
+use std::sync::LazyLock;
 
 /// Compiled regex patterns for token classification
 /// Order matters - more specific patterns should be checked first
 pub struct PatternMatcher;
 
 // Timestamp patterns
-static TIMESTAMP_FULL: Lazy<Regex> = Lazy::new(|| {
+static TIMESTAMP_FULL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$").unwrap()
 });
 
-static TIMESTAMP_TIME: Lazy<Regex> = Lazy::new(|| {
+static TIMESTAMP_TIME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$").unwrap()
 });
 
-static TIMESTAMP_DATE: Lazy<Regex> = Lazy::new(|| {
+static TIMESTAMP_DATE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap()
 });
 
 // UUID pattern
-static UUID: Lazy<Regex> = Lazy::new(|| {
+static UUID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap()
 });
 
 // Duration patterns (e.g., "42ms", "3.5s", "100MB")
-static DURATION: Lazy<Regex> = Lazy::new(|| {
+static DURATION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d+(\.\d+)?(ms|s|m|h|d|MB|GB|KB|B)$").unwrap()
 });
 
 // IP address patterns
-static IPV4: Lazy<Regex> = Lazy::new(|| {
+static IPV4: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$").unwrap()
 });
 
-static IPV6: Lazy<Regex> = Lazy::new(|| {
+static IPV6: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-f:]+::[0-9a-f:]*$").unwrap()
 });
 
 // Hash patterns (hex strings of common lengths)
-static HASH_MD5: Lazy<Regex> = Lazy::new(|| {
+static HASH_MD5: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-f]{32}$").unwrap()
 });
 
-static HASH_SHA1: Lazy<Regex> = Lazy::new(|| {
+static HASH_SHA1: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-f]{40}$").unwrap()
 });
 
-static HASH_SHA256: Lazy<Regex> = Lazy::new(|| {
+static HASH_SHA256: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-f]{64}$").unwrap()
 });
 
 // Number patterns (integer or float)
-static NUMBER: Lazy<Regex> = Lazy::new(|| {
+static NUMBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^-?\d+(\.\d+)?$").unwrap()
 });
 
 // 3-letter day-of-week and month abbreviations (case-insensitive).
 // These appear at the start of many log formats (e.g. Apache: "Sun Dec 04 …")
 // and should be treated as variable date components, not fixed literals.
-static DAY_ABBREVS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-        .iter()
-        .copied()
-        .collect()
-});
-
-static MONTH_ABBREVS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    [
-        "jan", "feb", "mar", "apr", "may", "jun",
-        "jul", "aug", "sep", "oct", "nov", "dec",
-    ]
-    .iter()
-    .copied()
-    .collect()
-});
+const DAY_ABBREVS: &[&str] = &["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const MONTH_ABBREVS: &[&str] = &[
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternType {
@@ -145,8 +133,9 @@ impl PatternMatcher {
         // Check only after all more-specific patterns, and only for exactly
         // 3-letter words to avoid false positives (e.g. "may" as a verb).
         if word.len() == 3 {
-            let lower = word.to_lowercase();
-            if DAY_ABBREVS.contains(lower.as_str()) || MONTH_ABBREVS.contains(lower.as_str()) {
+            if DAY_ABBREVS.iter().any(|d| d.eq_ignore_ascii_case(word))
+                || MONTH_ABBREVS.iter().any(|d| d.eq_ignore_ascii_case(word))
+            {
                 return PatternType::Timestamp;
             }
         }

@@ -22,8 +22,10 @@ pub struct NgramOutlierDetector {
     n: usize,
     /// Frequency table: n-gram -> count
     ngram_freq: HashMap<String, usize>,
-    /// Entry scores (rarity scores, lower = more unusual)
+    /// Entry scores sorted by score ascending (for threshold detection and get_outliers)
     entry_scores: Vec<(usize, f64)>, // (entry_index, score)
+    /// Index → score map for O(1) lookup by entry index
+    score_by_index: HashMap<usize, f64>,
     /// Total n-grams seen
     total_ngrams: usize,
     /// Outlier threshold (entries with score below this are outliers)
@@ -73,6 +75,7 @@ impl NgramOutlierDetector {
             n,
             ngram_freq: HashMap::new(),
             entry_scores: Vec::new(),
+            score_by_index: HashMap::new(),
             total_ngrams: 0,
             threshold: threshold_opt,
             effective_threshold: threshold.max(0.0),
@@ -97,6 +100,7 @@ impl NgramOutlierDetector {
             let content = entry.as_single_string();
             let score = self.calculate_rarity_score(&content);
             self.entry_scores.push((idx, score));
+            self.score_by_index.insert(idx, score);
         }
 
         // Sort by score (ascending - lowest scores are most unusual)
@@ -226,10 +230,7 @@ impl NgramOutlierDetector {
 
     /// Get entry score by index
     pub fn get_score(&self, entry_idx: usize) -> Option<f64> {
-        self.entry_scores
-            .iter()
-            .find(|(idx, _)| *idx == entry_idx)
-            .map(|(_, score)| *score)
+        self.score_by_index.get(&entry_idx).copied()
     }
 
     /// Get top N most common n-grams

@@ -463,30 +463,8 @@ impl OutputBuilder {
                 })
             })
             .collect();
-
-        if line_numbers.is_empty() {
-            return Vec::new();
-        }
-
         line_numbers.sort_unstable();
-
-        // Build ranges from consecutive line numbers
-        let mut ranges = Vec::new();
-        let mut range_start = line_numbers[0];
-        let mut range_end = line_numbers[0];
-
-        for &line_num in &line_numbers[1..] {
-            if line_num == range_end + 1 {
-                range_end = line_num;
-            } else {
-                ranges.push((range_start, range_end));
-                range_start = line_num;
-                range_end = line_num;
-            }
-        }
-        ranges.push((range_start, range_end));
-
-        ranges
+        consecutive_ranges(&line_numbers)
     }
 
     /// Build sample entries for a cluster
@@ -523,30 +501,8 @@ impl OutputBuilder {
     /// Build line ranges for a cluster
     fn build_cluster_line_ranges(&self, cluster: &Cluster) -> Vec<(usize, usize)> {
         let mut line_numbers = cluster.line_numbers.clone();
-
-        if line_numbers.is_empty() {
-            return Vec::new();
-        }
-
         line_numbers.sort_unstable();
-
-        // Build ranges from consecutive line numbers
-        let mut ranges = Vec::new();
-        let mut range_start = line_numbers[0];
-        let mut range_end = line_numbers[0];
-
-        for &line_num in &line_numbers[1..] {
-            if line_num == range_end + 1 {
-                range_end = line_num;
-            } else {
-                ranges.push((range_start, range_end));
-                range_start = line_num;
-                range_end = line_num;
-            }
-        }
-        ranges.push((range_start, range_end));
-
-        ranges
+        consecutive_ranges(&line_numbers)
     }
 
     fn detect_cluster_outliers(&self, clusters: &[Cluster]) -> Vec<OutlierOutput> {
