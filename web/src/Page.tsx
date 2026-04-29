@@ -2,6 +2,7 @@ import { App } from "./App";
 import { InstallGuide } from "./InstallGuide";
 import { Markdown } from "./markdown/Markdown";
 import { consumerDocs } from "./generated/consumer-docs";
+import { llmsContent } from "./generated/llms-content";
 
 function GithubLogo() {
   return (
@@ -19,23 +20,25 @@ function GithubLogo() {
 
 export function Page() {
   return (
-    <div class="h-full w-full bg-white overflow-hidden flex flex-col items-center px-16 py-4 gap-24">
-      <div class="flex flex-row justify-between border rounded-2xl border-gray-500 p-4 items-center w-full">
-        <div class="font-black tracking-tighter text-2xl select-none">
-          txtfold
+    <div class="h-full w-full bg-white overflow-hidden flex flex-col items-center gap-24">
+      <header class="px-4 sm:px-16 pt-4 w-full">
+        <div class="flex flex-row justify-between border rounded-2xl border-gray-500 p-4 items-center w-full">
+          <div class="font-black tracking-tighter text-2xl select-none">
+            txtfold
+          </div>
+          <div>
+            <a
+              href="https://github.com/kristiandupont/txtfold"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <GithubLogo />
+            </a>
+          </div>
         </div>
-        <div>
-          <a
-            href="https://github.com/kristiandupont/txtfold"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <GithubLogo />
-          </a>
-        </div>
-      </div>
+      </header>
 
-      <div class="w-2/3 text-center text-gray-700 text-lg">
+      <div class="px-4 w-full max-w-prose text-center text-gray-700 text-lg">
         <span class="font-black tracking-tighter">txtfold</span> helps you
         summarize large text files with repetitive data and interesting outliers
         (e.g. logs, JSON) for human or LLM consumption.
@@ -45,68 +48,27 @@ export function Page() {
 
       <App />
 
-      <div class="w-2/3 text-gray-500 text-sm">
-        <h1 class="text-xl text-gray-700 font-bold mb-4">
-          How to iterate your way towards a recipe with an LLM
-        </h1>
-
-        <p>
-          When working with large or unfamiliar data files, txtfold enables LLMs
-          to explore and summarize content iteratively, ensuring outputs remain
-          concise and relevant. Follow this process to refine your analysis step
-          by step:
-        </p>
-        <ol class="list-decimal list-inside space-y-3 my-4">
-          <li>
-            <em>Tell your LLM how txtfold works</em>: Use{" "}
-            <pre class="inline">txtfold --syntax</pre> to understand the recipe
-            syntax.
-          </li>
-          <li>
-            <em>Discover the structure</em>: Use{" "}
-            <pre class="inline">txtfold --discover &lt;FILE&gt;</pre> to map
-            fields, types, and sample values without processing the entire file.
-            Identify high-cardinality noise (e.g., unique IDs or blobs) and
-            low-cardinality grouping candidates (e.g., categories or status
-            codes).
-          </li>
-          <li>
-            <em>Preview costs</em>: Run{" "}
-            <pre class="inline">txtfold --cost-preview &lt;FILE&gt;</pre> to
-            estimate output size. Aim for under ~2,000 tokens to fit comfortably
-            in LLM context. Remove noisy fields with{" "}
-            <pre class="inline">del()</pre> to reduce size.
-          </li>
-          <li>
-            <em>Run initial analysis</em>: Apply a pipeline like{" "}
-            <pre class="inline">
-              txtfold '.array[] | del(.noise) | group_by(.category)'
-              &lt;FILE&gt;
-            </pre>{" "}
-            for JSON, or{" "}
-            <pre class="inline">txtfold 'patterns' &lt;FILE&gt;</pre> for logs.
-            Review groups, outliers, and readability.
-          </li>
-          <li>
-            <em>Iterate and refine</em>: Adjust based on results—add{" "}
-            <pre class="inline">top(N)</pre> for focus, switch algorithms (e.g.,{" "}
-            <pre class="inline">similar(0.8)</pre> for clustering), or filter
-            paths. Re-preview costs before full runs.
-          </li>
-          <li>
-            <em>Finalize</em>: Ensure the output provides clear insights with
-            distinct groups and manageable length, perfect for LLM consumption.
-          </li>
-        </ol>
-        <p>
-          This iterative approach transforms raw data into actionable summaries,
-          making complex files accessible for AI-driven analysis.
-        </p>
+      <div class="px-4 w-full max-w-prose">
+        <Markdown content={llmsContent} />
       </div>
 
-      <div class="w-2/3 prose prose-gray max-w-none">
+      <div class="px-4 w-full max-w-prose">
         <Markdown content={consumerDocs} />
       </div>
+
+      <footer class="flex flex-row justify-center bg-black text-gray-300 p-4 items-center w-full">
+        <div class="text-sm">
+          Made by{" "}
+          <a
+            href="https://kristiandupont.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="underline"
+          >
+            Kristian Dupont
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }

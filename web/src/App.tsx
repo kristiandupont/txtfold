@@ -68,22 +68,24 @@ export function* App(this: Context) {
 
   for ({} of this) {
     yield (
-      <div class="flex-row border rounded-2xl border-gray-500 p-4 items-center w-full">
-        <div class="flex-1 flex flex-col lg:flex-row gap-4">
-          <OptionsPanel state={state} setState={setState} />
-          <div class="flex flex-col w-2/3 lg:flex-row gap-4 relative">
-            <InputPanel state={state} setState={setState} />
-            <OutputPanel state={state} />
-            <button
-              class="absolute top-1/2 left-1/2 -ml-8 -mt-8 rounded-full size-16 flex items-center justify-center border-2 bg-gray-50 border-gray-500 shadow-lg"
-              disabled={state.processing || !state.input.trim()}
-              onclick={processText}
-            >
-              {state.processing ? <ProcessingIcon /> : <PlayIcon />}
-            </button>
+      <main class="w-full px-4 sm:px-16">
+        <div class="flex-row border rounded-2xl border-gray-500 p-4 items-center w-full">
+          <div class="flex-1 flex flex-col lg:flex-row gap-4">
+            <OptionsPanel state={state} setState={setState} />
+            <div class="flex flex-col w-2/3 lg:flex-row gap-4 relative">
+              <InputPanel state={state} setState={setState} />
+              <OutputPanel state={state} />
+              <button
+                class="absolute top-1/2 left-1/2 -ml-8 -mt-8 rounded-full size-16 flex items-center justify-center border-2 bg-gray-50 border-gray-500 shadow-lg"
+                disabled={state.processing || !state.input.trim()}
+                onclick={processText}
+              >
+                {state.processing ? <ProcessingIcon /> : <PlayIcon />}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 }
