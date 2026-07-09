@@ -21,7 +21,7 @@ jobs:
           sed -i.bak "s/txtfold-core = { path = \"core\", version = \"[^\"]*\" }/txtfold-core = { path = \"core\", version = \"$VERSION\" }/" Cargo.toml && rm Cargo.toml.bak
 
       - name: Cache Rust build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
