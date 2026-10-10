@@ -30,7 +30,7 @@
   "keywords": ["logs", "analysis", "patterns", "summarization"],
   "license": "MIT OR Apache-2.0",
   "devDependencies": {
-    "@types/node": "^25.5.0",
+    "@types/node": "^26.0.0",
     "typescript": "^5.0"
   }
 }
